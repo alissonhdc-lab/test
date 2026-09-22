@@ -16,6 +16,7 @@ Veja README.md nesta pasta para instruções completas.
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import traceback
@@ -86,9 +87,19 @@ def flatten(obj, prefix="", exclude_prefixes=()):
     return out
 
 
+FIELD_NAME_TAG = (0x0008, 0x103E)  # SeriesDescription
+
+# Convenção de nomenclatura do serviço: "...PFG<gantry>C<colimador>"
+# (ex.: "...+PFG0C270" -> gantry 0, colimador 270). Essa string é a fonte
+# confiável do ângulo de colimador real usado — mais confiável, nesse fluxo
+# de trabalho, do que a tag DICOM de colimador (BeamLimitingDeviceAngle).
+FIELD_NAME_ANGLES_RE = re.compile(r"PFG(-?\d+(?:\.\d+)?)C(-?\d+(?:\.\d+)?)", re.IGNORECASE)
+
+
 def extract_dicom_angles(filepath):
-    """Lê ângulo de gantry, colimador, mesa e receptor de imagem direto do
-    cabeçalho DICOM (tags padrão do módulo RT Image), quando presentes."""
+    """Lê ângulo de gantry e mesa direto do cabeçalho DICOM (tags padrão do
+    módulo RT Image), e o ângulo de colimador a partir do nome do campo
+    (SeriesDescription), quando presentes."""
     tags = {
         "dicom_gantry_angle_deg": (0x300A, 0x011E),
         "dicom_collimator_angle_deg": (0x300A, 0x0120),
@@ -103,6 +114,13 @@ def extract_dicom_angles(filepath):
                     out[key] = float(ds[tag].value)
                 except (TypeError, ValueError):
                     pass
+
+        field_name_elem = ds.get(FIELD_NAME_TAG, None)
+        field_name = str(field_name_elem.value) if field_name_elem else ""
+        out["dicom_field_name"] = field_name
+        match = FIELD_NAME_ANGLES_RE.search(field_name)
+        if match:
+            out["dicom_collimator_angle_deg"] = float(match.group(2))
     except Exception:
         pass
     return out
