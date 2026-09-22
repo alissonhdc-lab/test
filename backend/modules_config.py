@@ -67,6 +67,10 @@ MODULES = {
     "picketfence": {
         "cls": pylinac.PicketFence,
         "input_mode": "single",
+        # Lê ângulo de gantry e colimador direto do cabeçalho DICOM da imagem
+        # (tags padrão do RT Image) e inclui nas métricas retornadas, já que
+        # o picket fence normalmente é repetido em vários ângulos de gantry.
+        "extract_dicom_angles": True,
         "param_map": {
             "orientation": "orientation",
             "tolerance_mm": "tolerance",

@@ -22,6 +22,7 @@ import traceback
 from pathlib import Path
 from typing import List, Optional
 
+import pydicom
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -82,6 +83,28 @@ def flatten(obj, prefix="", exclude_prefixes=()):
             out[prefix] = str(obj)
         except Exception:
             pass
+    return out
+
+
+def extract_dicom_angles(filepath):
+    """Lê ângulo de gantry, colimador, mesa e receptor de imagem direto do
+    cabeçalho DICOM (tags padrão do módulo RT Image), quando presentes."""
+    tags = {
+        "dicom_gantry_angle_deg": (0x300A, 0x011E),
+        "dicom_collimator_angle_deg": (0x300A, 0x0120),
+        "dicom_couch_angle_deg": (0x300A, 0x0122),
+    }
+    out = {}
+    try:
+        ds = pydicom.dcmread(str(filepath), stop_before_pixels=True, force=True)
+        for key, tag in tags.items():
+            if tag in ds:
+                try:
+                    out[key] = float(ds[tag].value)
+                except (TypeError, ValueError):
+                    pass
+    except Exception:
+        pass
     return out
 
 
@@ -188,6 +211,9 @@ async def analyze(
         postprocess = config.get("postprocess")
         if postprocess:
             flat = postprocess(flat)
+
+        if config.get("extract_dicom_angles") and len(saved_paths) >= 1:
+            flat.update(extract_dicom_angles(saved_paths[0]))
 
         if isinstance(results_dict, dict) and results_dict.get("warnings"):
             warnings_list = [str(w) for w in results_dict.get("warnings", [])]

@@ -87,6 +87,8 @@
         { key: "invert", label: "Inverter imagem", type: "checkbox", default: false },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info" },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info" },
         { key: "max_error_mm", label: "Erro máximo de lâmina", unit: "mm", tolType: "max", tol: 0.5 },
         { key: "absolute_median_error_mm", label: "Erro mediano absoluto", unit: "mm", tolType: "max", tol: 0.3 },
         { key: "percent_leaves_passing", label: "% de lâminas aprovadas", unit: "%", tolType: "min", tol: 100 },
