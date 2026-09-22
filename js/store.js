@@ -10,6 +10,7 @@
   "use strict";
 
   const DB_KEY = "rtqc_db_v1";
+  const BACKEND_URL_KEY = "rtqc_backend_url_v1";
 
   function uid() {
     if (global.crypto && global.crypto.randomUUID) return global.crypto.randomUUID();
@@ -190,6 +191,13 @@
     }
     return { last, nextDue, status };
   }
+
+  Store.getBackendUrl = function () {
+    return localStorage.getItem(BACKEND_URL_KEY) || "http://localhost:8420";
+  };
+  Store.setBackendUrl = function (url) {
+    localStorage.setItem(BACKEND_URL_KEY, url.trim().replace(/\/+$/, ""));
+  };
 
   global.RTQC = global.RTQC || {};
   global.RTQC.store = Store;

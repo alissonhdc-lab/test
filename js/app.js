@@ -63,7 +63,7 @@
     } else if (route === "usuarios") {
       content = ui.renderUsers(db, session);
     } else if (route === "backup") {
-      content = ui.renderBackup(db);
+      content = ui.renderBackup(db, store.getBackendUrl());
     } else if (route === "ajuda") {
       content = ui.renderHelp();
     } else {
@@ -245,6 +245,9 @@
         openResultModal(routine);
         break;
       }
+      case "run-pylinac-analysis":
+        runPylinacAnalysis(el);
+        break;
       case "view-result": {
         const db = store.get();
         const result = db.results.find((x) => x.id === el.dataset.id);
@@ -294,6 +297,15 @@
         break;
       case "import-backup":
         importBackup();
+        break;
+      case "save-backend-url": {
+        const input = document.getElementById("backend-url-input");
+        store.setBackendUrl(input.value);
+        modal.toast("URL do backend salva.", "success");
+        break;
+      }
+      case "test-backend-connection":
+        testBackendConnection();
         break;
       case "add-manual-metric":
         addManualMetricRow();
@@ -480,7 +492,8 @@
   // Modais: Resultado + Aprovação
   // ------------------------------------------------------------------
   function openResultModal(routine) {
-    modal.openModal({ title: "Registrar resultado", bodyHtml: ui.resultFormHtml(routine), wide: true });
+    const module = routine.testType === "pylinac" ? catalog.getModuleById(routine.moduleId) : null;
+    modal.openModal({ title: "Registrar resultado", bodyHtml: ui.resultFormHtml(routine, module), wide: true });
     const form = document.getElementById("result-form");
     form.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -490,6 +503,8 @@
         const v = fd.get("value__" + m.key);
         if (v !== null && v !== "") values[m.key] = m.tolType === "bool" ? v === "true" : v;
       });
+      const rawMetricsJson = fd.get("raw_metrics_json");
+      const sourceFilesJson = fd.get("source_files_json");
       const result = {
         id: store.uid(),
         routineId: routine.id,
@@ -500,12 +515,100 @@
         notes: fd.get("notes"),
         approval: null,
         createdAt: store.nowIso(),
+        analyzedWithPylinac: !!rawMetricsJson,
+        rawMetrics: rawMetricsJson ? JSON.parse(rawMetricsJson) : null,
+        sourceFiles: sourceFilesJson ? JSON.parse(sourceFilesJson) : [],
       };
       store.addResult(result);
       modal.toast("Resultado registrado.", "success");
       modal.closeModal();
       render();
     });
+  }
+
+  async function runPylinacAnalysis(triggerEl) {
+    const section = triggerEl.closest(".pylinac-upload-section");
+    const form = document.getElementById("result-form");
+    const routineId = form.dataset.routineId;
+    const db = store.get();
+    const routine = db.routines.find((r) => r.id === routineId);
+    const moduleId = section.dataset.moduleId;
+    const fileMode = section.dataset.fileMode;
+    const statusEl = document.getElementById("pylinac-analysis-status");
+
+    const fileInputs = Array.from(section.querySelectorAll(".pylinac-file-input"));
+    const files = [];
+    for (const input of fileInputs) {
+      if (!input.files || input.files.length === 0) {
+        statusEl.textContent = "Selecione o(s) arquivo(s) necessário(s) antes de analisar.";
+        statusEl.className = "pylinac-status form-error";
+        return;
+      }
+      for (const f of input.files) files.push(f);
+    }
+    if (fileMode === "pair" && files.length !== 2) {
+      statusEl.textContent = "Este teste exige exatamente 2 arquivos (um em cada campo).";
+      statusEl.className = "pylinac-status form-error";
+      return;
+    }
+    if (fileMode === "single" && files.length !== 1) {
+      statusEl.textContent = "Este teste exige exatamente 1 arquivo.";
+      statusEl.className = "pylinac-status form-error";
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("module_id", moduleId);
+    formData.append("params", JSON.stringify(routine.params || {}));
+    files.forEach((f) => formData.append("files", f, f.name));
+
+    const backendUrl = store.getBackendUrl();
+    triggerEl.disabled = true;
+    triggerEl.textContent = "Analisando (pode levar alguns segundos)...";
+    statusEl.textContent = "";
+    statusEl.className = "pylinac-status muted small";
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/analyze`, { method: "POST", body: formData });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        throw new Error(data.detail || "Falha na análise.");
+      }
+
+      (routine.metrics || []).forEach((m) => {
+        const value = data.metrics[m.key];
+        if (value === undefined) return;
+        const input = form.querySelector(`.result-metric-input[data-metric-key="${cssEscape(m.key)}"]`);
+        if (!input) return;
+        if (m.tolType === "bool") input.value = String(!!value);
+        else input.value = typeof value === "number" ? value : parseFloat(value);
+      });
+
+      document.getElementById("raw-metrics-json-field").value = JSON.stringify(data.metrics);
+      document.getElementById("source-files-json-field").value = JSON.stringify(files.map((f) => f.name));
+      const rawJsonEl = document.getElementById("pylinac-raw-json");
+      rawJsonEl.textContent = JSON.stringify(data.metrics, null, 2);
+      document.getElementById("pylinac-raw-details").classList.remove("hidden");
+
+      statusEl.textContent =
+        "Análise concluída." + (data.warnings && data.warnings.length ? ` Avisos do pylinac: ${data.warnings.join("; ")}` : "");
+      statusEl.className = "pylinac-status muted small";
+      modal.toast("Análise pylinac concluída. Confira os valores antes de salvar.", "success");
+    } catch (err) {
+      const isNetworkError = err instanceof TypeError;
+      statusEl.textContent = isNetworkError
+        ? `Não foi possível conectar ao servidor de análise (${backendUrl}). Verifique se o backend está rodando e a URL configurada em Backup.`
+        : `Erro na análise: ${err.message}`;
+      statusEl.className = "pylinac-status form-error";
+      modal.toast("Falha ao analisar com pylinac.", "error");
+    } finally {
+      triggerEl.disabled = false;
+      triggerEl.textContent = "▶ Analisar com pylinac";
+    }
+  }
+
+  function cssEscape(str) {
+    return String(str).replace(/[.[\]"']/g, "\\$&");
   }
 
   function openApprovalModal(resultId) {
@@ -570,6 +673,26 @@
   // ------------------------------------------------------------------
   // Backup
   // ------------------------------------------------------------------
+  async function testBackendConnection() {
+    const statusEl = document.getElementById("backend-connection-status");
+    const url = document.getElementById("backend-url-input").value.trim().replace(/\/+$/, "");
+    statusEl.textContent = "Testando...";
+    statusEl.className = "muted small mt";
+    try {
+      const resp = await fetch(`${url}/api/health`);
+      const data = await resp.json();
+      if (resp.ok && data.status === "ok") {
+        statusEl.textContent = `Conectado! ${data.modules.length} tipos de teste com análise automática disponíveis.`;
+        statusEl.className = "small mt form-success";
+      } else {
+        throw new Error("Resposta inesperada do servidor.");
+      }
+    } catch (err) {
+      statusEl.textContent = `Não foi possível conectar em ${url}. Verifique se o backend está rodando (veja backend/README.md).`;
+      statusEl.className = "small mt form-error";
+    }
+  }
+
   function exportBackup() {
     const db = store.get();
     const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });

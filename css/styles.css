@@ -292,6 +292,7 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 .form-error { color: var(--danger); font-size: 12.5px; min-height: 16px; }
+.form-success { color: var(--success); font-size: 12.5px; }
 .confirm-message { font-size: 13.5px; }
 
 .test-type-fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; gap: 20px; }
@@ -391,6 +392,32 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 .chart-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
 .result-detail p { margin: 6px 0; font-size: 13.5px; }
+
+/* -------------------- Upload/análise pylinac -------------------- */
+.pylinac-upload-section {
+  border: 1px solid var(--primary-bg);
+  background: var(--primary-bg);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-top: 6px;
+}
+.pylinac-upload-section h4 { color: var(--primary-dark); margin-bottom: 8px; }
+.pylinac-upload-section input[type="file"] {
+  font-size: 12.5px;
+  padding: 6px 0;
+}
+.pylinac-status { min-height: 16px; margin-top: 8px; }
+.raw-json {
+  background: #0f172a;
+  color: #d1e2ff;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* -------------------- Responsivo -------------------- */
 @media (max-width: 860px) {

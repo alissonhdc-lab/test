@@ -613,13 +613,55 @@
     return !anyFail;
   }
 
-  function resultFormHtml(routine) {
+  function pylinacUploadSectionHtml(module) {
+    const mode = module.fileMode;
+    let inputsHtml = "";
+    if (mode === "single") {
+      inputsHtml = `<label>Arquivo
+        <input type="file" class="pylinac-file-input" data-slot="0" accept="${esc(module.fileAccept || "")}" />
+      </label>`;
+    } else if (mode === "multiple") {
+      inputsHtml = `<label>Arquivos (selecione todos de uma vez)
+        <input type="file" class="pylinac-file-input" data-slot="multi" accept="${esc(module.fileAccept || "")}" multiple />
+      </label>`;
+    } else if (mode === "pair") {
+      const labels = module.fileLabels || ["Arquivo 1", "Arquivo 2"];
+      inputsHtml = labels
+        .map(
+          (label, i) => `<label>${esc(label)}
+            <input type="file" class="pylinac-file-input" data-slot="${i}" accept="${esc(module.fileAccept || "")}" />
+          </label>`
+        )
+        .join("");
+    } else if (mode === "series") {
+      inputsHtml = `<label>Cortes DICOM da série (selecione todos) ou um único arquivo .zip
+        <input type="file" class="pylinac-file-input" data-slot="multi" accept="${esc(module.fileAccept || "")}" multiple />
+      </label>`;
+    }
+
+    return `
+    <div class="pylinac-upload-section" data-file-mode="${esc(mode)}" data-module-id="${esc(module.id)}">
+      <h4>Análise automática via pylinac</h4>
+      ${module.fileHint ? `<p class="muted small">${esc(module.fileHint)}</p>` : ""}
+      <div class="params-grid">${inputsHtml}</div>
+      <button type="button" class="btn btn-primary" data-action="run-pylinac-analysis">▶ Analisar com pylinac</button>
+      <div id="pylinac-analysis-status" class="pylinac-status muted small"></div>
+      <details id="pylinac-raw-details" class="hidden mt">
+        <summary>Ver todos os dados retornados pelo pylinac</summary>
+        <pre id="pylinac-raw-json" class="raw-json"></pre>
+      </details>
+      <input type="hidden" name="raw_metrics_json" id="raw-metrics-json-field" value="" />
+      <input type="hidden" name="source_files_json" id="source-files-json-field" value="" />
+    </div>`;
+  }
+
+  function resultFormHtml(routine, module) {
     const metrics = routine.metrics || [];
     const fields = metrics
       .map((m) => {
         if (m.tolType === "bool") {
           return `<label>${esc(m.label)}
-            <select name="value__${m.key}">
+            <select name="value__${m.key}" class="result-metric-input" data-metric-key="${esc(m.key)}">
               <option value="">—</option>
               <option value="true">Aprovado</option>
               <option value="false">Reprovado</option>
@@ -627,10 +669,12 @@
           </label>`;
         }
         return `<label>${esc(m.label)} ${m.unit ? `<span class="unit-tag">${esc(m.unit)}</span>` : ""}
-          <input type="number" step="any" name="value__${m.key}" placeholder="${toleranceHint(m)}" />
+          <input type="number" step="any" name="value__${m.key}" class="result-metric-input" data-metric-key="${esc(m.key)}" placeholder="${toleranceHint(m)}" />
         </label>`;
       })
       .join("");
+
+    const showUpload = module && module.requiresFiles;
 
     return `
     <form id="result-form" class="stacked-form" data-routine-id="${routine.id}">
@@ -640,6 +684,13 @@
       <label>Executado por
         <input type="text" name="performedByName" required placeholder="Nome de quem realizou o teste" />
       </label>
+      ${showUpload ? pylinacUploadSectionHtml(module) : ""}
+      ${
+        module && !module.requiresFiles && module.autoAnalysisNote
+          ? `<p class="muted small">ℹ️ ${esc(module.autoAnalysisNote)}</p>`
+          : ""
+      }
+      <h4 class="${showUpload ? "mt" : ""}">Valores do resultado${showUpload ? " (confira antes de salvar)" : ""}</h4>
       <div class="params-grid">${fields || '<p class="muted">Esta rotina não possui métricas configuradas.</p>'}</div>
       ${
         metrics.length === 0
@@ -681,12 +732,22 @@
           <tbody>${rows || "<tr><td colspan=3>Sem métricas.</td></tr>"}</tbody>
         </table>
         ${result.notes ? `<p><b>Observações:</b> ${esc(result.notes)}</p>` : ""}
+        ${
+          result.analyzedWithPylinac
+            ? `<p class="muted small">⚙ Calculado automaticamente pelo pylinac a partir de: ${esc((result.sourceFiles || []).join(", "))}</p>`
+            : ""
+        }
         <p><b>Situação:</b> ${passBadge(computeResultPass(routine, result))}</p>
         <p><b>Aprovação:</b> ${
           result.approval
             ? `Aprovado por <b>${esc(result.approval.fullName)}</b> (usuário: ${esc(result.approval.username)}) em ${fmtDateTime(result.approval.approvedAt)}`
             : "Pendente de aprovação"
         }</p>
+        ${
+          result.rawMetrics
+            ? `<details><summary>Ver todos os dados retornados pelo pylinac</summary><pre class="raw-json">${esc(JSON.stringify(result.rawMetrics, null, 2))}</pre></details>`
+            : ""
+        }
         <div class="form-actions">
           <button type="button" class="btn" data-action="close-modal">Fechar</button>
           ${!result.approval ? `<button type="button" class="btn btn-primary" data-action="approve-result" data-id="${result.id}">Aprovar resultado</button>` : ""}
@@ -790,9 +851,21 @@
   // ------------------------------------------------------------------
   // Backup
   // ------------------------------------------------------------------
-  function renderBackup(db) {
+  function renderBackup(db, backendUrl) {
     return `
       <div class="page-header"><h2>Backup e dados</h2></div>
+      <div class="panel">
+        <div class="panel-header"><h3>Servidor de Análise (pylinac)</h3></div>
+        <p class="muted">Para que o botão "Analisar com pylinac" funcione, o backend Python precisa estar rodando (veja <code>backend/README.md</code> no repositório). Informe abaixo o endereço onde ele está disponível.</p>
+        <label>URL do backend
+          <input type="text" id="backend-url-input" value="${esc(backendUrl)}" placeholder="http://localhost:8420" />
+        </label>
+        <div class="form-actions" style="justify-content:flex-start; margin-top:10px;">
+          <button class="btn" data-action="save-backend-url">Salvar URL</button>
+          <button class="btn" data-action="test-backend-connection">Testar conexão</button>
+        </div>
+        <div id="backend-connection-status" class="muted small mt"></div>
+      </div>
       <div class="panel">
         <div class="panel-header"><h3>Exportar</h3></div>
         <p class="muted">Todos os dados (equipamentos, rotinas, resultados e usuários) ficam salvos apenas no armazenamento local deste navegador. Exporte periodicamente um arquivo de backup em JSON.</p>
@@ -829,8 +902,16 @@
           <li>Cada resultado registrado pode ser visualizado em <b>gráficos de tendência</b>, escolhendo quais métricas exibir.</li>
           <li>Cada resultado possui um botão de <b>Aprovar</b>, que exige usuário e senha (assinatura eletrônica) e carimba data/hora e responsável.</li>
         </ul>
-        <p class="muted small"><b>Importante:</b> este vínculo com o pylinac é de <i>configuração e rastreabilidade</i> — a análise de imagens do pylinac roda em Python; aqui você registra qual módulo/parâmetros foram usados e lança os resultados obtidos. Para automatizar a execução do pylinac e importar resultados automaticamente, seria necessário um serviço/backend em Python integrado a este sistema.</p>
-        <p class="muted small">Como não há servidor, senha e login funcionam como um registro de responsabilidade local, não como segurança de nível hospitalar/multiusuário. Faça backups regulares (menu Backup).</p>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h3>Análise automática de arquivos DICOM (pylinac de verdade)</h3></div>
+        <p>Para a maioria dos testes de Linac, CT/CBCT e imagem planar, é possível <b>enviar os arquivos DICOM</b> na tela de "Registrar resultado" e clicar em <b>"Analisar com pylinac"</b>: o app envia os arquivos para um pequeno servidor Python (backend), que roda o pylinac de verdade e devolve os resultados já prontos para conferência e gravação.</p>
+        <p>Isso exige rodar o backend (pasta <code>backend/</code> do repositório) em algum computador acessível pelo navegador — normalmente o seu próprio computador. Veja <code>backend/README.md</code> para o passo a passo, e configure o endereço em <a href="#/backup">Backup → Servidor de Análise</a>.</p>
+        <p class="muted small">Testes que são calculadoras numéricas (TG-51/TRS-398) ou que exigem configuração muito específica do fantoma (Winston-Lutz multi-alvo, DLG, ACR, log de trajetória) permanecem com lançamento manual dos resultados — o app avisa isso na tela do teste.</p>
+        <p class="muted small">Os arquivos DICOM enviados são processados apenas em memória/temporariamente pelo backend e descartados após a análise; o app guarda somente os números resultantes (e, quando disponível, o relatório bruto do pylinac) — não guarda as imagens.</p>
+      </div>
+      <div class="panel">
+        <p class="muted small">Como não há servidor central de dados, senha e login funcionam como um registro de responsabilidade local, não como segurança de nível hospitalar/multiusuário. Faça backups regulares (menu Backup).</p>
       </div>
     `;
   }

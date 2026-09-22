@@ -1,0 +1,10 @@
+# Ambientes virtuais Python (backend)
+backend_test_venv/
+backend/venv/
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+
+# Arquivos de demonstração baixados pelo pylinac
+demo_files/
