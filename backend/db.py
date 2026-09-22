@@ -453,3 +453,122 @@ def set_watch_folder_error(wid, error):
 def delete_watch_folder(wid):
     with get_conn() as conn:
         conn.execute("DELETE FROM watch_folders WHERE id = ?", (wid,))
+
+
+# ------------------------------------------------------------------
+# Backup / restauração
+# ------------------------------------------------------------------
+def import_backup(data):
+    """Substitui todo o conteúdo do banco pelos dados de um backup, de forma
+    atômica (tudo ou nada, com rollback em caso de erro) e preservando os
+    IDs originais de cada entidade — essencial para manter as referências
+    entre equipamentos/rotinas/resultados intactas (usar create_* geraria
+    IDs novos e quebraria essas ligações, violando as chaves estrangeiras)."""
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    try:
+        with _lock:
+            # As chaves estrangeiras ficam ATIVAS de propósito durante a
+            # importação: se o arquivo referenciar uma rotina/equipamento
+            # inexistente, a inserção falha e o rollback abaixo preserva os
+            # dados atuais, em vez de aceitar registros órfãos.
+            conn.execute("PRAGMA foreign_keys = ON")
+            try:
+                conn.execute("BEGIN")
+                conn.execute("DELETE FROM results")
+                conn.execute("DELETE FROM watch_folders")
+                conn.execute("DELETE FROM routines")
+                conn.execute("DELETE FROM equipments")
+                conn.execute("DELETE FROM users")
+
+                for u in data.get("users", []):
+                    conn.execute(
+                        "INSERT INTO users (id, username, full_name, role, salt, password_hash, created_at) VALUES (?,?,?,?,?,?,?)",
+                        (
+                            u.get("id") or new_id(),
+                            u["username"],
+                            u["fullName"],
+                            u.get("role", "tecnico"),
+                            u["salt"],
+                            u["passwordHash"],
+                            u.get("createdAt") or now_iso(),
+                        ),
+                    )
+                for e in data.get("equipments", []):
+                    conn.execute(
+                        "INSERT INTO equipments (id,type,name,manufacturer,model,serial_number,location,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            e.get("id") or new_id(),
+                            e["type"],
+                            e["name"],
+                            e.get("manufacturer"),
+                            e.get("model"),
+                            e.get("serialNumber"),
+                            e.get("location"),
+                            e.get("notes"),
+                            1 if e.get("active", True) else 0,
+                            e.get("createdAt") or now_iso(),
+                        ),
+                    )
+                for r in data.get("routines", []):
+                    conn.execute(
+                        "INSERT INTO routines (id,equipment_id,name,frequency,test_type,module_id,params_json,metrics_json,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            r.get("id") or new_id(),
+                            r["equipmentId"],
+                            r["name"],
+                            r["frequency"],
+                            r["testType"],
+                            r.get("moduleId"),
+                            json.dumps(r.get("params") or {}),
+                            json.dumps(r.get("metrics") or []),
+                            r.get("notes"),
+                            1 if r.get("active", True) else 0,
+                            r.get("createdAt") or now_iso(),
+                        ),
+                    )
+                for res in data.get("results", []):
+                    approval = res.get("approval") or {}
+                    conn.execute(
+                        """INSERT INTO results
+                        (id, routine_id, date, performed_by_name, values_json, pass_override, notes,
+                         analyzed_with_pylinac, auto_generated, raw_metrics_json, source_files_json,
+                         approval_user_id, approval_username, approval_full_name, approval_at, created_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            res.get("id") or new_id(),
+                            res["routineId"],
+                            res["date"],
+                            res.get("performedByName"),
+                            json.dumps(res.get("values") or {}),
+                            None if res.get("passOverride") is None else (1 if res.get("passOverride") else 0),
+                            res.get("notes"),
+                            1 if res.get("analyzedWithPylinac") else 0,
+                            1 if res.get("autoGenerated") else 0,
+                            json.dumps(res["rawMetrics"]) if res.get("rawMetrics") is not None else None,
+                            json.dumps(res.get("sourceFiles") or []),
+                            approval.get("userId"),
+                            approval.get("username"),
+                            approval.get("fullName"),
+                            approval.get("approvedAt"),
+                            res.get("createdAt") or now_iso(),
+                        ),
+                    )
+                for wf in data.get("watchFolders", []):
+                    conn.execute(
+                        "INSERT INTO watch_folders (id, routine_id, folder_path, active, last_error, created_at) VALUES (?,?,?,?,?,?)",
+                        (
+                            wf.get("id") or new_id(),
+                            wf["routineId"],
+                            wf["folderPath"],
+                            1 if wf.get("active", True) else 0,
+                            wf.get("lastError"),
+                            wf.get("createdAt") or now_iso(),
+                        ),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+    finally:
+        conn.close()

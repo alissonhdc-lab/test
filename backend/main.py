@@ -25,6 +25,7 @@ import logging
 import os
 import shutil
 import tempfile
+import traceback
 from pathlib import Path
 from typing import List, Optional
 
@@ -278,26 +279,16 @@ def backup_export():
 
 @app.post("/api/backup/import")
 def backup_import(data: dict = Body(...)):
-    with db.get_conn() as conn:
-        conn.execute("DELETE FROM results")
-        conn.execute("DELETE FROM watch_folders")
-        conn.execute("DELETE FROM routines")
-        conn.execute("DELETE FROM equipments")
-        conn.execute("DELETE FROM users")
-
-    for u in data.get("users", []):
-        db.create_user(u["fullName"], u["username"], u.get("role", "tecnico"), u["salt"], u["passwordHash"])
-    for e in data.get("equipments", []):
-        db.create_equipment(e)
-    for r in data.get("routines", []):
-        db.create_routine(r)
-    for res in data.get("results", []):
-        rid = db.create_result(res)
-        if res.get("approval"):
-            db.set_result_approval(rid, res["approval"])
-    for wf in data.get("watchFolders", []):
-        db.create_watch_folder(wf["routineId"], wf["folderPath"])
-
+    try:
+        db.import_backup(data)
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Arquivo de backup inválido ou incompleto (faltando campo {e}).")
+    except Exception as e:
+        logger.error("Falha ao importar backup: %s", traceback.format_exc())
+        raise HTTPException(
+            status_code=422,
+            detail=f"Falha ao importar backup ({e}). Nenhum dado foi alterado — a importação é tudo-ou-nada.",
+        )
     return {"success": True}
 
 
