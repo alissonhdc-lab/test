@@ -113,6 +113,15 @@
     try {
       db = await store.get();
     } catch (err) {
+      if (err.status === 401) {
+        // Sessão local sem token válido (ex.: sessão salva antes deste
+        // mecanismo existir, ou expirada no backend) — em vez de travar
+        // numa tela de erro, descarta a sessão e volta para o login.
+        auth.logout();
+        appRoot.innerHTML = ui.renderLogin();
+        bindLoginForm();
+        return;
+      }
       appRoot.innerHTML = ui.renderBackendError(err.message, store.getBackendUrl());
       bindBackendErrorScreen();
       return;
