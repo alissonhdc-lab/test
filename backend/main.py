@@ -204,7 +204,19 @@ async def analyze(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Falha ao analisar módulo %s: %s", module_id, traceback.format_exc())
-        raise HTTPException(status_code=422, detail=f"Falha na análise pylinac: {e}")
+        full_trace = traceback.format_exc()
+        logger.error("Falha ao analisar módulo %s: %s", module_id, full_trace)
+        hint = ""
+        msg = str(e).lower()
+        if "nan" in msg and module_id == "picketfence":
+            hint = (
+                " — Dica: isso costuma acontecer quando o modelo de MLC configurado na "
+                "rotina não bate com a máquina real da imagem, a orientação dos pickets "
+                "está trocada (Up-Down/Left-Right), ou a imagem precisa da opção "
+                "'Inverter imagem'. Confira esses parâmetros na rotina e tente de novo."
+            )
+        elif "nan" in msg:
+            hint = " — Dica: confira se o arquivo enviado é realmente do tipo de teste selecionado e se os parâmetros da rotina (orientação, inversão, etc.) batem com a imagem."
+        raise HTTPException(status_code=422, detail=f"Falha na análise pylinac: {e}{hint}")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

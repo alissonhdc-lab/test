@@ -80,6 +80,18 @@ MODULES = {
             "num_pickets": _int_cast,
             "invert": _bool_cast,
         },
+        # mlc e crop_mm são passados na construção do objeto (não em analyze()).
+        # Escolher o modelo de MLC certo é essencial: o pylinac assume "Millennium"
+        # (Varian) por padrão, e se a máquina real usar outro MLC (ex.: MLCi da
+        # Elekta), a detecção dos pickets falha (é a causa mais comum do erro
+        # "cannot convert float NaN to integer").
+        "constructor_param_map": {"mlc": "mlc", "crop_mm": "crop_mm"},
+        "constructor_param_cast": {
+            "mlc": _enum_by_name(
+                __import__("pylinac.picketfence", fromlist=["MLC"]).MLC
+            ),
+            "crop_mm": _int_cast,
+        },
     },
     "starshot": {
         "cls": pylinac.Starshot,

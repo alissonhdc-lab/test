@@ -352,7 +352,9 @@
       .map((p) => {
         const val = params[p.key] !== undefined ? params[p.key] : p.default;
         if (p.type === "select") {
-          const opts = p.options.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("");
+          const opts = p.options
+            .map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc((p.optionLabels && p.optionLabels[o]) || o)}</option>`)
+            .join("");
           return `<label>${esc(p.label)}<select name="param__${p.key}">${opts}</select></label>`;
         }
         if (p.type === "checkbox") {
