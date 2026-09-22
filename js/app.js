@@ -19,19 +19,25 @@
     return resultFilters[routineId];
   }
 
-  function formatAngle(v) {
+  // Ângulos reais de gantry/colimador raramente batem exatamente com o
+  // valor nominal (ex.: 89.9° ou 90.1° em vez de 90°) — para os filtros,
+  // agrupamos pelo múltiplo de 90° mais próximo (0, 90, 180, 270, ...) em
+  // vez de usar o valor exato, senão cada pequena variação viraria um chip
+  // de filtro separado.
+  function snapAngleForFilter(v) {
     const n = Number(v);
     if (Number.isNaN(n)) return String(v);
-    const rounded = Math.round(n * 10) / 10;
-    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}°`;
+    const snapped = Math.round(n / 90) * 90;
+    const normalized = ((snapped % 360) + 360) % 360;
+    return `${normalized}°`;
   }
 
   function buildFilterOptions(allResults) {
     const gantrySet = new Set();
     const collimatorSet = new Set();
     allResults.forEach((r) => {
-      if (r.values.dicom_gantry_angle_deg !== undefined) gantrySet.add(formatAngle(r.values.dicom_gantry_angle_deg));
-      if (r.values.dicom_collimator_angle_deg !== undefined) collimatorSet.add(formatAngle(r.values.dicom_collimator_angle_deg));
+      if (r.values.dicom_gantry_angle_deg !== undefined) gantrySet.add(snapAngleForFilter(r.values.dicom_gantry_angle_deg));
+      if (r.values.dicom_collimator_angle_deg !== undefined) collimatorSet.add(snapAngleForFilter(r.values.dicom_collimator_angle_deg));
     });
     const sortByNumber = (a, b) => parseFloat(a) - parseFloat(b);
     return {
@@ -44,11 +50,11 @@
     return allResults.filter((r) => {
       if (filters.gantry.size > 0) {
         if (r.values.dicom_gantry_angle_deg === undefined) return false;
-        if (!filters.gantry.has(formatAngle(r.values.dicom_gantry_angle_deg))) return false;
+        if (!filters.gantry.has(snapAngleForFilter(r.values.dicom_gantry_angle_deg))) return false;
       }
       if (filters.collimator.size > 0) {
         if (r.values.dicom_collimator_angle_deg === undefined) return false;
-        if (!filters.collimator.has(formatAngle(r.values.dicom_collimator_angle_deg))) return false;
+        if (!filters.collimator.has(snapAngleForFilter(r.values.dicom_collimator_angle_deg))) return false;
       }
       if (filters.status.size > 0) {
         const passed = ui.computeResultPass(routine, r);
