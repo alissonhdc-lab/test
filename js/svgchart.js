@@ -11,6 +11,16 @@
 
   const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
 
+  function isAngleUnit(unit) {
+    return unit === "°" || unit === "graus";
+  }
+
+  function fmtValue(v, unit) {
+    const decimals = isAngleUnit(unit) ? 1 : 2;
+    const rounded = Number(Number(v).toFixed(decimals));
+    return (rounded === 0 ? 0 : rounded).toFixed(decimals);
+  }
+
   function fmtDate(iso) {
     const d = new Date(iso);
     return d.toLocaleDateString("pt-BR");
@@ -165,7 +175,7 @@
         circle.setAttribute("class", "chart-point");
         circle.setAttribute("fill", color);
         const title = document.createElementNS(svgns, "title");
-        title.textContent = `${s.label}: ${p.y}${s.unit ? " " + s.unit : ""} em ${fmtDateTime(p.x)}`;
+        title.textContent = `${s.label}: ${fmtValue(p.y, s.unit)}${s.unit ? " " + s.unit : ""} em ${fmtDateTime(p.x)}`;
         circle.appendChild(title);
         svg.appendChild(circle);
       });

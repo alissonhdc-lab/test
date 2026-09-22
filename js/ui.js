@@ -545,7 +545,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     const metrics = routine.metrics || [];
     watchFolders = watchFolders || [];
 
-    const plottableMetrics = metrics.filter((m) => m.plottable !== false);
+    const plottableMetrics = metrics.filter((m) => isMetricPlottable(m, module));
     const metricChecks = plottableMetrics
       .map(
         (m) => `
@@ -561,7 +561,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         const passed = computeResultPass(routine, res);
         const valuesSummary = metrics
           .slice(0, 3)
-          .map((m) => `${esc(m.label)}: <b>${res.values[m.key] !== undefined ? esc(res.values[m.key]) : "—"}</b>${m.unit ? " " + esc(m.unit) : ""}`)
+          .map((m) => `${esc(m.label)}: <b>${formatMetricValue(m, res.values[m.key])}</b>${m.unit && res.values[m.key] !== undefined ? " " + esc(m.unit) : ""}`)
           .join(" · ");
         return `
         <tr>
@@ -717,6 +717,44 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       </div>`;
   }
 
+  function isAngleUnit(unit) {
+    return unit === "°" || unit === "graus";
+  }
+
+  // Arredonda e formata com casas decimais fixas, normalizando "-0.0" para
+  // "0.0" (artefato comum de arredondamento de valores muito próximos de
+  // zero, que fica estranho visualmente).
+  function fixDecimals(value, decimals) {
+    const num = Number(value);
+    if (Number.isNaN(num)) return null;
+    const rounded = Number(num.toFixed(decimals));
+    return (rounded === 0 ? 0 : rounded).toFixed(decimals);
+  }
+
+  function formatMetricValue(m, value) {
+    if (value === undefined || value === null || value === "") return "—";
+    if (m.tolType === "bool") {
+      if (value === true || value === "true") return "Aprovado";
+      if (value === false || value === "false") return "Reprovado";
+      return "—";
+    }
+    const formatted = fixDecimals(value, isAngleUnit(m.unit) ? 1 : 2);
+    return formatted === null ? esc(value) : formatted;
+  }
+
+  // Rotinas criadas antes de um metadado "plottable" existir no catálogo
+  // guardam sua própria cópia congelada das métricas (sem esse campo) — por
+  // isso a checagem consulta o módulo do catálogo atual (fonte da verdade)
+  // como prioridade, e só cai para o valor salvo na rotina como reserva
+  // (ex.: métricas manuais, que não têm módulo de catálogo correspondente).
+  function isMetricPlottable(m, module) {
+    if (module && module.metrics) {
+      const catalogMetric = module.metrics.find((cm) => cm.key === m.key);
+      if (catalogMetric && catalogMetric.plottable !== undefined) return catalogMetric.plottable !== false;
+    }
+    return m.plottable !== false;
+  }
+
   function computeResultPass(routine, result) {
     const metrics = routine.metrics || [];
     if (metrics.length === 0) return result.passOverride === undefined ? null : result.passOverride;
@@ -850,7 +888,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     const rows = metrics
       .map((m) => {
         const v = result.values[m.key];
-        return `<tr><td>${esc(m.label)}</td><td>${v !== undefined && v !== "" ? esc(v) : "—"} ${m.unit ? esc(m.unit) : ""}</td><td>${esc(toleranceHint(m) || "—")}</td></tr>`;
+        return `<tr><td>${esc(m.label)}</td><td>${formatMetricValue(m, v)} ${v !== undefined && v !== "" ? esc(m.unit || "") : ""}</td><td>${esc(toleranceHint(m) || "—")}</td></tr>`;
       })
       .join("");
     return `
@@ -1096,6 +1134,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     toleranceInputsHtml,
     renderRoutineDetail,
     computeResultPass,
+    formatMetricValue,
+    isAngleUnit,
+    fixDecimals,
     resultFormHtml,
     resultDetailHtml,
     approvalFormHtml,

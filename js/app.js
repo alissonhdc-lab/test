@@ -772,8 +772,12 @@
         if (value === undefined) return;
         const input = form.querySelector(`.result-metric-input[data-metric-key="${cssEscape(m.key)}"]`);
         if (!input) return;
-        if (m.tolType === "bool") input.value = String(!!value);
-        else input.value = typeof value === "number" ? value : parseFloat(value);
+        if (m.tolType === "bool") {
+          input.value = String(!!value);
+        } else {
+          const formatted = ui.fixDecimals(value, ui.isAngleUnit(m.unit) ? 1 : 2);
+          input.value = formatted === null ? value : formatted;
+        }
       });
 
       document.getElementById("raw-metrics-json-field").value = JSON.stringify(data.metrics);
