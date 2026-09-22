@@ -35,6 +35,82 @@ confirmar que subiu, acesse `http://localhost:8420/api/health`.
 Na primeira vez que rodar, ele cria automaticamente o arquivo `rtqc.db`
 (SQLite) nesta pasta com o esquema do banco.
 
+## Passo a passo no Windows (Prompt de Comando)
+
+Se você estiver no Windows, este é o caminho mais direto — usando o
+**Prompt de Comando** (`cmd.exe`; pode ser o mesmo que o PyCharm abre em
+"Terminal"). Rode um comando por vez.
+
+1. **Verifique se o Python está instalado:**
+
+   ```bat
+   python --version
+   ```
+
+   Se der erro "não é reconhecido...", instale o Python em
+   [python.org/downloads](https://www.python.org/downloads/) marcando a
+   opção **"Add python.exe to PATH"** durante a instalação, feche e abra o
+   terminal de novo.
+
+2. **Entre na pasta `backend` do projeto** (ajuste o caminho para onde você
+   clonou o repositório):
+
+   ```bat
+   cd C:\Users\SeuUsuario\Documents\test\backend
+   ```
+
+3. **Crie o ambiente virtual (só na primeira vez):**
+
+   ```bat
+   python -m venv venv
+   ```
+
+4. **Ative o ambiente virtual** (repita este passo toda vez que abrir um
+   terminal novo para rodar o backend):
+
+   ```bat
+   venv\Scripts\activate
+   ```
+
+   O início da linha do terminal deve passar a mostrar `(venv)`.
+
+5. **Instale as dependências (só na primeira vez, ou quando o
+   `requirements.txt` mudar):**
+
+   ```bat
+   pip install -r requirements.txt
+   ```
+
+6. **Rode o backend:**
+
+   ```bat
+   uvicorn main:app --host 0.0.0.0 --port 8420
+   ```
+
+   Deixe esta janela do terminal aberta — fechá-la derruba o backend (e
+   junto o observador de pastas). Para confirmar que subiu, abra
+   `http://localhost:8420/api/health` no navegador: deve aparecer um texto
+   começando com `{"status":"ok"...`.
+
+7. **Para parar o backend:** clique na janela do terminal e pressione
+   `Ctrl+C`.
+
+8. **Nas próximas vezes**, você só precisa repetir os passos 2, 4 e 6 (não
+   precisa recriar o ambiente virtual nem reinstalar as dependências).
+
+> **Usando PowerShell em vez do Prompt de Comando?** O comando de ativar o
+> ambiente virtual é diferente: `.\venv\Scripts\Activate.ps1`. Se aparecer
+> um erro de "política de execução" (*execution policy*), rode uma vez
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` e confirme com `S`
+> antes de tentar ativar de novo.
+
+> **Quer acessar o backend de outro computador da mesma rede** (ex.: o
+> notebook que roda o backend fica na sala de física, mas você quer abrir
+> o app de outro PC)? Descubra o IP da máquina que roda o backend com
+> `ipconfig` (campo "Endereço IPv4"), libere a porta 8420 no Firewall do
+> Windows se necessário, e em **Backup → Servidor (backend)** no app
+> aponte para `http://<esse-IP>:8420` em vez de `localhost`.
+
 ## 3. Conectar o app a este backend
 
 1. Abra o app (`index.html`, local ou publicado no GitHub Pages).
