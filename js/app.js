@@ -1,5 +1,7 @@
 /* ==========================================================================
    app.js — roteamento (hash), estado de sessão e ligação de eventos.
+   Todos os dados agora vêm do backend (API REST) — este arquivo trata a
+   maior parte das chamadas como assíncronas.
    ========================================================================== */
 
 (function (global) {
@@ -19,14 +21,22 @@
   }
 
   async function render() {
-    const session = auth.currentSession();
+    let hasUsers;
+    try {
+      hasUsers = await auth.hasAnyUser();
+    } catch (err) {
+      appRoot.innerHTML = ui.renderBackendError(err.message, store.getBackendUrl());
+      bindBackendErrorScreen();
+      return;
+    }
 
-    if (!auth.hasAnyUser()) {
+    if (!hasUsers) {
       appRoot.innerHTML = ui.renderSetupAdmin();
       bindSetupAdminForm();
       return;
     }
 
+    const session = auth.currentSession();
     if (!session) {
       appRoot.innerHTML = ui.renderLogin();
       bindLoginForm();
@@ -35,9 +45,18 @@
 
     const parts = parseHash();
     const route = parts[0] || "dashboard";
-    const db = store.get();
+
+    let db;
+    try {
+      db = await store.get();
+    } catch (err) {
+      appRoot.innerHTML = ui.renderBackendError(err.message, store.getBackendUrl());
+      bindBackendErrorScreen();
+      return;
+    }
 
     let content = "";
+    let watchFolders = [];
     if (route === "dashboard") {
       content = ui.renderDashboard(db);
     } else if (route === "equipamentos" && parts.length === 1) {
@@ -59,7 +78,8 @@
       if (!trendSelection[routine.id]) {
         trendSelection[routine.id] = defaultTrendMetrics(routine);
       }
-      content = ui.renderRoutineDetail(db, eq, routine, trendSelection[routine.id]);
+      watchFolders = await store.listWatchFolders(routine.id);
+      content = ui.renderRoutineDetail(db, eq, routine, trendSelection[routine.id], watchFolders);
     } else if (route === "usuarios") {
       content = ui.renderUsers(db, session);
     } else if (route === "backup") {
@@ -74,7 +94,7 @@
 
     if (route === "equipamentos" && parts.length === 4) {
       const routine = db.routines.find((r) => r.id === parts[3]);
-      drawTrendChart(routine, db);
+      drawTrendChart(routine);
     }
   }
 
@@ -86,10 +106,10 @@
     return [];
   }
 
-  function drawTrendChart(routine, db) {
+  async function drawTrendChart(routine) {
     const container = document.getElementById("trend-chart-container");
     if (!container) return;
-    const results = store.resultsByRoutine(routine.id);
+    const results = await store.resultsByRoutine(routine.id);
     const selected = trendSelection[routine.id] || [];
     const metricsByKey = {};
     (routine.metrics || []).forEach((m) => (metricsByKey[m.key] = m));
@@ -124,6 +144,19 @@
   }
 
   // ------------------------------------------------------------------
+  // Tela de erro de conexão com o backend
+  // ------------------------------------------------------------------
+  function bindBackendErrorScreen() {
+    const btn = document.querySelector('[data-action="retry-backend-connection"]');
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const input = document.getElementById("backend-url-input-boot");
+      if (input && input.value.trim()) store.setBackendUrl(input.value);
+      render();
+    });
+  }
+
+  // ------------------------------------------------------------------
   // Login / Setup
   // ------------------------------------------------------------------
   function bindSetupAdminForm() {
@@ -138,11 +171,10 @@
         return;
       }
       try {
-        await auth.createUser({
+        await auth.setupFirstAdmin({
           fullName: fd.get("fullName"),
           username: fd.get("username"),
           password,
-          role: "admin",
         });
         await auth.login(fd.get("username"), password);
         modal.toast("Usuário administrador criado com sucesso.", "success");
@@ -193,7 +225,7 @@
         location.hash = `#/equipamentos/${el.dataset.id}`;
         break;
       case "edit-equipment": {
-        const db = store.get();
+        const db = await store.get();
         const eq = db.equipments.find((x) => x.id === el.dataset.id);
         openEquipmentModal(eq);
         break;
@@ -204,8 +236,8 @@
           message: "Isto excluirá o equipamento e todas as rotinas e resultados associados. Esta ação não pode ser desfeita. Deseja continuar?",
           confirmLabel: "Excluir",
           danger: true,
-          onConfirm: () => {
-            store.deleteEquipment(el.dataset.id);
+          onConfirm: async () => {
+            await store.deleteEquipment(el.dataset.id);
             modal.toast("Equipamento excluído.", "success");
             location.hash = "#/equipamentos";
             render();
@@ -221,7 +253,7 @@
         break;
       }
       case "edit-routine": {
-        const db = store.get();
+        const db = await store.get();
         const routine = db.routines.find((x) => x.id === el.dataset.id);
         openRoutineModal(routine.equipmentId, routine);
         break;
@@ -229,18 +261,18 @@
       case "delete-routine":
         modal.confirmModal({
           title: "Excluir rotina",
-          message: "Isto excluirá a rotina e todos os resultados registrados. Deseja continuar?",
+          message: "Isto excluirá a rotina, os resultados registrados e as pastas observadas associadas. Deseja continuar?",
           confirmLabel: "Excluir",
           danger: true,
-          onConfirm: () => {
-            store.deleteRoutine(el.dataset.id);
+          onConfirm: async () => {
+            await store.deleteRoutine(el.dataset.id);
             modal.toast("Rotina excluída.", "success");
             render();
           },
         });
         break;
       case "new-result": {
-        const db = store.get();
+        const db = await store.get();
         const routine = db.routines.find((x) => x.id === el.dataset.routineId);
         openResultModal(routine);
         break;
@@ -249,7 +281,7 @@
         runPylinacAnalysis(el);
         break;
       case "view-result": {
-        const db = store.get();
+        const db = await store.get();
         const result = db.results.find((x) => x.id === el.dataset.id);
         const routine = db.routines.find((x) => x.id === result.routineId);
         modal.openModal({ title: "Detalhe do resultado", bodyHtml: ui.resultDetailHtml(routine, result), wide: true });
@@ -264,8 +296,8 @@
           message: "Deseja excluir este resultado registrado?",
           confirmLabel: "Excluir",
           danger: true,
-          onConfirm: () => {
-            store.deleteResult(el.dataset.id);
+          onConfirm: async () => {
+            await store.deleteResult(el.dataset.id);
             modal.toast("Resultado excluído.", "success");
             render();
           },
@@ -281,8 +313,8 @@
           message: "Deseja excluir este usuário? Aprovações já assinadas por ele serão mantidas no histórico.",
           confirmLabel: "Excluir",
           danger: true,
-          onConfirm: () => {
-            store.deleteUser(el.dataset.id);
+          onConfirm: async () => {
+            await store.deleteUser(el.dataset.id);
             modal.toast("Usuário excluído.", "success");
             render();
           },
@@ -302,6 +334,7 @@
         const input = document.getElementById("backend-url-input");
         store.setBackendUrl(input.value);
         modal.toast("URL do backend salva.", "success");
+        render();
         break;
       }
       case "test-backend-connection":
@@ -313,8 +346,39 @@
       case "remove-manual-metric":
         el.closest(".manual-metric-row").remove();
         break;
+      case "toggle-watch-folder":
+        await store.setWatchFolderActive(el.dataset.id, el.dataset.active === "1");
+        render();
+        break;
+      case "delete-watch-folder":
+        modal.confirmModal({
+          title: "Remover pasta observada",
+          message: "O backend vai parar de observar essa pasta. Arquivos já processados não são afetados.",
+          confirmLabel: "Remover",
+          danger: true,
+          onConfirm: async () => {
+            await store.deleteWatchFolder(el.dataset.id);
+            render();
+          },
+        });
+        break;
       default:
         break;
+    }
+  });
+
+  document.addEventListener("submit", async (e) => {
+    if (e.target.id === "watch-folder-form") {
+      e.preventDefault();
+      const form = e.target;
+      const fd = new FormData(form);
+      try {
+        await store.addWatchFolder(form.dataset.routineId, fd.get("folderPath"));
+        modal.toast("Pasta configurada para observação.", "success");
+        render();
+      } catch (err) {
+        modal.toast(err.message, "error");
+      }
     }
   });
 
@@ -341,18 +405,20 @@
       const routineId = parts[3];
       const checks = Array.from(document.querySelectorAll(".trend-metric-check"));
       trendSelection[routineId] = checks.filter((c) => c.checked).map((c) => c.value);
-      const db = store.get();
-      const routine = db.routines.find((r) => r.id === routineId);
-      drawTrendChart(routine, db);
+      store.get().then((db) => {
+        const routine = db.routines.find((r) => r.id === routineId);
+        drawTrendChart(routine);
+      });
     }
   });
 
   window.addEventListener("resize", () => {
     const parts = parseHash();
     if (parts[0] === "equipamentos" && parts.length === 4) {
-      const db = store.get();
-      const routine = db.routines.find((r) => r.id === parts[3]);
-      if (routine) drawTrendChart(routine, db);
+      store.get().then((db) => {
+        const routine = db.routines.find((r) => r.id === parts[3]);
+        if (routine) drawTrendChart(routine);
+      });
     }
   });
 
@@ -362,7 +428,7 @@
   function openEquipmentModal(equipment) {
     modal.openModal({ title: equipment ? "Editar equipamento" : "Novo equipamento", bodyHtml: ui.equipmentForm(equipment), wide: true });
     const form = document.getElementById("equipment-form");
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
       const data = {
@@ -376,29 +442,31 @@
         active: fd.get("active") === "on",
       };
       const id = form.dataset.id;
-      if (id) {
-        store.updateEquipment(id, data);
-        modal.toast("Equipamento atualizado.", "success");
-      } else {
-        data.id = store.uid();
-        data.createdAt = store.nowIso();
-        store.addEquipment(data);
-        modal.toast("Equipamento cadastrado.", "success");
+      try {
+        if (id) {
+          await store.updateEquipment(id, data);
+          modal.toast("Equipamento atualizado.", "success");
+        } else {
+          await store.addEquipment(data);
+          modal.toast("Equipamento cadastrado.", "success");
+        }
+        modal.closeModal();
+        render();
+      } catch (err) {
+        modal.toast(err.message, "error");
       }
-      modal.closeModal();
-      render();
     });
   }
 
   // ------------------------------------------------------------------
   // Modais: Rotina
   // ------------------------------------------------------------------
-  function openRoutineModal(equipmentId, routine) {
-    const db = store.get();
+  async function openRoutineModal(equipmentId, routine) {
+    const db = await store.get();
     const equipment = db.equipments.find((e) => e.id === equipmentId);
     modal.openModal({ title: routine ? "Editar rotina de CQ" : "Nova rotina de CQ", bodyHtml: ui.routineFormHtml(equipment, routine), wide: true });
     const form = document.getElementById("routine-form");
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
       const testType = fd.get("testType");
@@ -459,17 +527,19 @@
       };
 
       const id = form.dataset.id;
-      if (id) {
-        store.updateRoutine(id, data);
-        modal.toast("Rotina atualizada.", "success");
-      } else {
-        data.id = store.uid();
-        data.createdAt = store.nowIso();
-        store.addRoutine(data);
-        modal.toast("Rotina cadastrada.", "success");
+      try {
+        if (id) {
+          await store.updateRoutine(id, data);
+          modal.toast("Rotina atualizada.", "success");
+        } else {
+          await store.addRoutine(data);
+          modal.toast("Rotina cadastrada.", "success");
+        }
+        modal.closeModal();
+        render();
+      } catch (err) {
+        modal.toast(err.message, "error");
       }
-      modal.closeModal();
-      render();
     });
   }
 
@@ -495,7 +565,7 @@
     const module = routine.testType === "pylinac" ? catalog.getModuleById(routine.moduleId) : null;
     modal.openModal({ title: "Registrar resultado", bodyHtml: ui.resultFormHtml(routine, module), wide: true });
     const form = document.getElementById("result-form");
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
       const values = {};
@@ -506,23 +576,24 @@
       const rawMetricsJson = fd.get("raw_metrics_json");
       const sourceFilesJson = fd.get("source_files_json");
       const result = {
-        id: store.uid(),
         routineId: routine.id,
         date: fd.get("date"),
         performedByName: fd.get("performedByName"),
         values,
         passOverride: fd.get("passOverride") ? fd.get("passOverride") === "true" : undefined,
         notes: fd.get("notes"),
-        approval: null,
-        createdAt: store.nowIso(),
         analyzedWithPylinac: !!rawMetricsJson,
         rawMetrics: rawMetricsJson ? JSON.parse(rawMetricsJson) : null,
         sourceFiles: sourceFilesJson ? JSON.parse(sourceFilesJson) : [],
       };
-      store.addResult(result);
-      modal.toast("Resultado registrado.", "success");
-      modal.closeModal();
-      render();
+      try {
+        await store.addResult(result);
+        modal.toast("Resultado registrado.", "success");
+        modal.closeModal();
+        render();
+      } catch (err) {
+        modal.toast(err.message, "error");
+      }
     });
   }
 
@@ -530,7 +601,7 @@
     const section = triggerEl.closest(".pylinac-upload-section");
     const form = document.getElementById("result-form");
     const routineId = form.dataset.routineId;
-    const db = store.get();
+    const db = await store.get();
     const routine = db.routines.find((r) => r.id === routineId);
     const moduleId = section.dataset.moduleId;
     const fileMode = section.dataset.fileMode;
@@ -620,9 +691,8 @@
       const errorBox = document.getElementById("approval-error");
       errorBox.textContent = "";
       try {
-        const approval = await auth.signApproval(fd.get("username"), fd.get("password"));
-        store.updateResult(resultId, { approval });
-        modal.toast(`Resultado aprovado por ${approval.fullName}.`, "success");
+        const updated = await store.approveResult(resultId, fd.get("username"), fd.get("password"));
+        modal.toast(`Resultado aprovado por ${updated.approval.fullName}.`, "success");
         modal.closeModal();
         render();
       } catch (err) {
@@ -693,9 +763,15 @@
     }
   }
 
-  function exportBackup() {
-    const db = store.get();
-    const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+  async function exportBackup() {
+    let data;
+    try {
+      data = await store.exportBackup();
+    } catch (err) {
+      modal.toast(err.message, "error");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -714,21 +790,21 @@
     }
     modal.confirmModal({
       title: "Importar backup",
-      message: "Isto substituirá TODOS os dados atuais deste navegador pelos dados do arquivo. Deseja continuar?",
+      message: "Isto substituirá TODOS os dados atuais do backend pelos dados do arquivo. Deseja continuar?",
       confirmLabel: "Importar e substituir",
       danger: true,
       onConfirm: () => {
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
           try {
             const data = JSON.parse(reader.result);
-            store.replaceAll(data);
+            await store.replaceAll(data);
             modal.toast("Backup importado com sucesso.", "success");
             auth.logout();
             location.hash = "#/dashboard";
             render();
           } catch (err) {
-            modal.toast("Arquivo inválido.", "error");
+            modal.toast(err.message || "Arquivo inválido.", "error");
           }
         };
         reader.readAsText(input.files[0]);

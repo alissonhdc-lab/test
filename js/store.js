@@ -1,171 +1,156 @@
 /* ==========================================================================
    store.js
-   Camada de persistência (localStorage) e utilitários de dados.
-   Toda a aplicação roda no navegador, sem backend: os dados ficam salvos
-   apenas neste computador/navegador. Use o menu "Backup" para exportar e
-   importar o arquivo JSON de dados.
+   Cliente da API do backend (substitui o antigo armazenamento local do
+   navegador). Todos os dados — usuários, equipamentos, rotinas e resultados
+   — agora vivem no banco do backend, para que o observador de pastas possa
+   gravar resultados automaticamente mesmo sem nenhum navegador aberto.
    ========================================================================== */
 
 (function (global) {
   "use strict";
 
-  const DB_KEY = "rtqc_db_v1";
   const BACKEND_URL_KEY = "rtqc_backend_url_v1";
 
-  function uid() {
-    if (global.crypto && global.crypto.randomUUID) return global.crypto.randomUUID();
-    return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  function getBackendUrl() {
+    return localStorage.getItem(BACKEND_URL_KEY) || "http://localhost:8420";
+  }
+  function setBackendUrl(url) {
+    localStorage.setItem(BACKEND_URL_KEY, url.trim().replace(/\/+$/, ""));
   }
 
-  function nowIso() {
-    return new Date().toISOString();
-  }
-
-  function emptyDb() {
-    return {
-      version: 1,
-      users: [],
-      equipments: [],
-      routines: [],
-      results: [],
-    };
-  }
-
-  function load() {
+  async function apiFetch(path, options) {
+    let resp;
     try {
-      const raw = localStorage.getItem(DB_KEY);
-      if (!raw) return emptyDb();
-      const db = JSON.parse(raw);
-      return Object.assign(emptyDb(), db);
-    } catch (e) {
-      console.error("Falha ao carregar base de dados local:", e);
-      return emptyDb();
+      resp = await fetch(getBackendUrl() + path, options);
+    } catch (err) {
+      const e = new Error(
+        `Não foi possível conectar ao servidor (${getBackendUrl()}). Verifique se o backend está rodando (veja backend/README.md) e a URL configurada em Backup.`
+      );
+      e.isNetworkError = true;
+      throw e;
     }
+    let data = null;
+    const text = await resp.text();
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        data = null;
+      }
+    }
+    if (!resp.ok) {
+      const msg = data && data.detail ? data.detail : `Erro ${resp.status} ao comunicar com o servidor.`;
+      const e = new Error(msg);
+      e.status = resp.status;
+      throw e;
+    }
+    return data;
   }
 
-  function save(db) {
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
+  function apiGet(path) {
+    return apiFetch(path);
+  }
+  function apiPost(path, body) {
+    return apiFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  }
+  function apiPut(path, body) {
+    return apiFetch(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  }
+  function apiDelete(path) {
+    return apiFetch(path, { method: "DELETE" });
   }
 
-  // ------------------------------------------------------------------
-  // CRUD genérico
-  // ------------------------------------------------------------------
   const Store = {
-    uid,
-    nowIso,
+    getBackendUrl,
+    setBackendUrl,
+    api: { apiGet, apiPost, apiPut, apiDelete },
 
-    get() {
-      return load();
-    },
-
-    replaceAll(db) {
-      save(db);
+    async healthCheck() {
+      return apiGet("/api/health");
     },
 
-    reset() {
-      save(emptyDb());
+    async get() {
+      const [users, equipments, routines, results] = await Promise.all([
+        apiGet("/api/usuarios"),
+        apiGet("/api/equipamentos"),
+        apiGet("/api/rotinas"),
+        apiGet("/api/resultados"),
+      ]);
+      return { users, equipments, routines, results };
     },
 
-    // ---- users ----
-    addUser(user) {
-      const db = load();
-      db.users.push(user);
-      save(db);
-      return user;
-    },
-    updateUser(id, patch) {
-      const db = load();
-      const u = db.users.find((x) => x.id === id);
-      if (u) Object.assign(u, patch);
-      save(db);
-      return u;
-    },
-    deleteUser(id) {
-      const db = load();
-      db.users = db.users.filter((x) => x.id !== id);
-      save(db);
-    },
-    findUserByUsername(username) {
-      const db = load();
-      const uname = (username || "").trim().toLowerCase();
-      return db.users.find((u) => u.username.toLowerCase() === uname) || null;
+    async replaceAll(data) {
+      return apiPost("/api/backup/import", data);
     },
 
-    // ---- equipments ----
+    // ---- equipamentos ----
     addEquipment(eq) {
-      const db = load();
-      db.equipments.push(eq);
-      save(db);
-      return eq;
+      return apiPost("/api/equipamentos", eq);
     },
     updateEquipment(id, patch) {
-      const db = load();
-      const e = db.equipments.find((x) => x.id === id);
-      if (e) Object.assign(e, patch);
-      save(db);
-      return e;
+      return apiPut(`/api/equipamentos/${id}`, patch);
     },
     deleteEquipment(id) {
-      const db = load();
-      const routineIds = db.routines.filter((r) => r.equipmentId === id).map((r) => r.id);
-      db.results = db.results.filter((r) => !routineIds.includes(r.routineId));
-      db.routines = db.routines.filter((r) => r.equipmentId !== id);
-      db.equipments = db.equipments.filter((x) => x.id !== id);
-      save(db);
+      return apiDelete(`/api/equipamentos/${id}`);
     },
 
-    // ---- routines ----
+    // ---- rotinas ----
     addRoutine(routine) {
-      const db = load();
-      db.routines.push(routine);
-      save(db);
-      return routine;
+      return apiPost("/api/rotinas", routine);
     },
     updateRoutine(id, patch) {
-      const db = load();
-      const r = db.routines.find((x) => x.id === id);
-      if (r) Object.assign(r, patch);
-      save(db);
-      return r;
+      return apiPut(`/api/rotinas/${id}`, patch);
     },
     deleteRoutine(id) {
-      const db = load();
-      db.results = db.results.filter((r) => r.routineId !== id);
-      db.routines = db.routines.filter((x) => x.id !== id);
-      save(db);
+      return apiDelete(`/api/rotinas/${id}`);
     },
     routinesByEquipment(equipmentId) {
-      return load().routines.filter((r) => r.equipmentId === equipmentId);
+      return apiGet(`/api/rotinas?equipment_id=${encodeURIComponent(equipmentId)}`);
     },
 
-    // ---- results ----
+    // ---- resultados ----
     addResult(result) {
-      const db = load();
-      db.results.push(result);
-      save(db);
-      return result;
-    },
-    updateResult(id, patch) {
-      const db = load();
-      const r = db.results.find((x) => x.id === id);
-      if (r) Object.assign(r, patch);
-      save(db);
-      return r;
+      return apiPost("/api/resultados", result);
     },
     deleteResult(id) {
-      const db = load();
-      db.results = db.results.filter((x) => x.id !== id);
-      save(db);
+      return apiDelete(`/api/resultados/${id}`);
     },
     resultsByRoutine(routineId) {
-      return load()
-        .results.filter((r) => r.routineId === routineId)
-        .sort((a, b) => new Date(a.date) - new Date(b.date));
+      return apiGet(`/api/resultados?routine_id=${encodeURIComponent(routineId)}`);
+    },
+    approveResult(id, username, password) {
+      return apiPost(`/api/resultados/${id}/approve`, { username, password });
+    },
+
+    // ---- usuários ----
+    deleteUser(id) {
+      return apiDelete(`/api/usuarios/${id}`);
+    },
+
+    // ---- pastas observadas ----
+    listWatchFolders(routineId) {
+      const qs = routineId ? `?routine_id=${encodeURIComponent(routineId)}` : "";
+      return apiGet(`/api/watch-folders${qs}`);
+    },
+    addWatchFolder(routineId, folderPath) {
+      return apiPost("/api/watch-folders", { routineId, folderPath });
+    },
+    setWatchFolderActive(id, active) {
+      return apiPut(`/api/watch-folders/${id}`, { active });
+    },
+    deleteWatchFolder(id) {
+      return apiDelete(`/api/watch-folders/${id}`);
+    },
+
+    // ---- backup ----
+    exportBackup() {
+      return apiGet("/api/backup/export");
     },
   };
 
   // ------------------------------------------------------------------
-  // Cálculo de próxima data / status de vencimento de rotina
+  // Cálculo de próxima data / status de vencimento de rotina (client-side,
+  // não depende do backend — recebe os dados já carregados).
   // ------------------------------------------------------------------
   function addDays(dateStr, days) {
     const d = new Date(dateStr);
@@ -191,13 +176,6 @@
     }
     return { last, nextDue, status };
   }
-
-  Store.getBackendUrl = function () {
-    return localStorage.getItem(BACKEND_URL_KEY) || "http://localhost:8420";
-  };
-  Store.setBackendUrl = function (url) {
-    localStorage.setItem(BACKEND_URL_KEY, url.trim().replace(/\/+$/, ""));
-  };
 
   global.RTQC = global.RTQC || {};
   global.RTQC.store = Store;

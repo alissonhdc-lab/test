@@ -1,0 +1,455 @@
+"""
+db.py — Persistência em SQLite para a plataforma de CQ em Radioterapia.
+
+Substitui o antigo armazenamento no navegador (localStorage): agora todos os
+dados (usuários, equipamentos, rotinas, resultados e pastas observadas)
+ficam num arquivo local (rtqc.db), lido e escrito pelo backend. Isso permite
+que o observador de pastas grave resultados automaticamente mesmo sem
+nenhum navegador aberto.
+"""
+
+import json
+import os
+import sqlite3
+import threading
+import uuid
+from contextlib import contextmanager
+from datetime import datetime, timezone
+
+DB_PATH = os.environ.get("RTQC_DB_PATH", os.path.join(os.path.dirname(__file__), "rtqc.db"))
+
+_lock = threading.Lock()
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def new_id():
+    return str(uuid.uuid4())
+
+
+@contextmanager
+def get_conn():
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        with _lock:
+            yield conn
+            conn.commit()
+    finally:
+        conn.close()
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    full_name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS equipments (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    manufacturer TEXT,
+    model TEXT,
+    serial_number TEXT,
+    location TEXT,
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS routines (
+    id TEXT PRIMARY KEY,
+    equipment_id TEXT NOT NULL REFERENCES equipments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    frequency TEXT NOT NULL,
+    test_type TEXT NOT NULL,
+    module_id TEXT,
+    params_json TEXT NOT NULL DEFAULT '{}',
+    metrics_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS results (
+    id TEXT PRIMARY KEY,
+    routine_id TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    performed_by_name TEXT,
+    values_json TEXT NOT NULL DEFAULT '{}',
+    pass_override INTEGER,
+    notes TEXT,
+    analyzed_with_pylinac INTEGER NOT NULL DEFAULT 0,
+    auto_generated INTEGER NOT NULL DEFAULT 0,
+    raw_metrics_json TEXT,
+    source_files_json TEXT,
+    approval_user_id TEXT,
+    approval_username TEXT,
+    approval_full_name TEXT,
+    approval_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watch_folders (
+    id TEXT PRIMARY KEY,
+    routine_id TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    folder_path TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    last_error TEXT,
+    created_at TEXT NOT NULL
+);
+"""
+
+
+def init_db():
+    with get_conn() as conn:
+        conn.executescript(SCHEMA)
+
+
+# ------------------------------------------------------------------
+# Helpers de (de)serialização
+# ------------------------------------------------------------------
+def _row_to_user(row):
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "fullName": row["full_name"],
+        "role": row["role"],
+        "salt": row["salt"],
+        "passwordHash": row["password_hash"],
+        "createdAt": row["created_at"],
+    }
+
+
+def _row_to_equipment(row):
+    return {
+        "id": row["id"],
+        "type": row["type"],
+        "name": row["name"],
+        "manufacturer": row["manufacturer"],
+        "model": row["model"],
+        "serialNumber": row["serial_number"],
+        "location": row["location"],
+        "notes": row["notes"],
+        "active": bool(row["active"]),
+        "createdAt": row["created_at"],
+    }
+
+
+def _row_to_routine(row):
+    return {
+        "id": row["id"],
+        "equipmentId": row["equipment_id"],
+        "name": row["name"],
+        "frequency": row["frequency"],
+        "testType": row["test_type"],
+        "moduleId": row["module_id"],
+        "params": json.loads(row["params_json"] or "{}"),
+        "metrics": json.loads(row["metrics_json"] or "[]"),
+        "notes": row["notes"],
+        "active": bool(row["active"]),
+        "createdAt": row["created_at"],
+    }
+
+
+def _row_to_result(row):
+    approval = None
+    if row["approval_user_id"]:
+        approval = {
+            "userId": row["approval_user_id"],
+            "username": row["approval_username"],
+            "fullName": row["approval_full_name"],
+            "approvedAt": row["approval_at"],
+        }
+    return {
+        "id": row["id"],
+        "routineId": row["routine_id"],
+        "date": row["date"],
+        "performedByName": row["performed_by_name"],
+        "values": json.loads(row["values_json"] or "{}"),
+        "passOverride": None if row["pass_override"] is None else bool(row["pass_override"]),
+        "notes": row["notes"],
+        "analyzedWithPylinac": bool(row["analyzed_with_pylinac"]),
+        "autoGenerated": bool(row["auto_generated"]),
+        "rawMetrics": json.loads(row["raw_metrics_json"]) if row["raw_metrics_json"] else None,
+        "sourceFiles": json.loads(row["source_files_json"]) if row["source_files_json"] else [],
+        "approval": approval,
+        "createdAt": row["created_at"],
+    }
+
+
+def _row_to_watch_folder(row):
+    return {
+        "id": row["id"],
+        "routineId": row["routine_id"],
+        "folderPath": row["folder_path"],
+        "active": bool(row["active"]),
+        "lastError": row["last_error"],
+        "createdAt": row["created_at"],
+    }
+
+
+# ------------------------------------------------------------------
+# Usuários
+# ------------------------------------------------------------------
+def list_users():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
+        return [_row_to_user(r) for r in rows]
+
+
+def get_user_by_username(username):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        return _row_to_user(row) if row else None
+
+
+def get_user_by_id(user_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return _row_to_user(row) if row else None
+
+
+def create_user(full_name, username, role, salt, password_hash):
+    uid = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO users (id, username, full_name, role, salt, password_hash, created_at) VALUES (?,?,?,?,?,?,?)",
+            (uid, username, full_name, role, salt, password_hash, now_iso()),
+        )
+    return uid
+
+
+def update_user_password(user_id, salt, password_hash):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET salt = ?, password_hash = ? WHERE id = ?", (salt, password_hash, user_id))
+
+
+def delete_user(user_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+# ------------------------------------------------------------------
+# Equipamentos
+# ------------------------------------------------------------------
+def list_equipments():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM equipments ORDER BY created_at").fetchall()
+        return [_row_to_equipment(r) for r in rows]
+
+
+def create_equipment(data):
+    eid = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO equipments (id,type,name,manufacturer,model,serial_number,location,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                eid,
+                data["type"],
+                data["name"],
+                data.get("manufacturer"),
+                data.get("model"),
+                data.get("serialNumber"),
+                data.get("location"),
+                data.get("notes"),
+                1 if data.get("active", True) else 0,
+                now_iso(),
+            ),
+        )
+    return eid
+
+
+def update_equipment(eid, data):
+    fields = {
+        "type": data.get("type"),
+        "name": data.get("name"),
+        "manufacturer": data.get("manufacturer"),
+        "model": data.get("model"),
+        "serial_number": data.get("serialNumber"),
+        "location": data.get("location"),
+        "notes": data.get("notes"),
+        "active": 1 if data.get("active", True) else 0,
+    }
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE equipments SET {set_clause} WHERE id = ?", (*fields.values(), eid))
+
+
+def delete_equipment(eid):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM equipments WHERE id = ?", (eid,))
+
+
+# ------------------------------------------------------------------
+# Rotinas
+# ------------------------------------------------------------------
+def list_routines(equipment_id=None):
+    with get_conn() as conn:
+        if equipment_id:
+            rows = conn.execute(
+                "SELECT * FROM routines WHERE equipment_id = ? ORDER BY created_at", (equipment_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM routines ORDER BY created_at").fetchall()
+        return [_row_to_routine(r) for r in rows]
+
+
+def get_routine(rid):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM routines WHERE id = ?", (rid,)).fetchone()
+        return _row_to_routine(row) if row else None
+
+
+def create_routine(data):
+    rid = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO routines (id,equipment_id,name,frequency,test_type,module_id,params_json,metrics_json,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                rid,
+                data["equipmentId"],
+                data["name"],
+                data["frequency"],
+                data["testType"],
+                data.get("moduleId"),
+                json.dumps(data.get("params") or {}),
+                json.dumps(data.get("metrics") or []),
+                data.get("notes"),
+                1 if data.get("active", True) else 0,
+                now_iso(),
+            ),
+        )
+    return rid
+
+
+def update_routine(rid, data):
+    fields = {
+        "name": data.get("name"),
+        "frequency": data.get("frequency"),
+        "test_type": data.get("testType"),
+        "module_id": data.get("moduleId"),
+        "params_json": json.dumps(data.get("params") or {}),
+        "metrics_json": json.dumps(data.get("metrics") or []),
+        "notes": data.get("notes"),
+        "active": 1 if data.get("active", True) else 0,
+    }
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE routines SET {set_clause} WHERE id = ?", (*fields.values(), rid))
+
+
+def delete_routine(rid):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM routines WHERE id = ?", (rid,))
+
+
+# ------------------------------------------------------------------
+# Resultados
+# ------------------------------------------------------------------
+def list_results(routine_id=None):
+    with get_conn() as conn:
+        if routine_id:
+            rows = conn.execute(
+                "SELECT * FROM results WHERE routine_id = ? ORDER BY date", (routine_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM results ORDER BY date").fetchall()
+        return [_row_to_result(r) for r in rows]
+
+
+def get_result(result_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM results WHERE id = ?", (result_id,)).fetchone()
+        return _row_to_result(row) if row else None
+
+
+def create_result(data):
+    res_id = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO results
+            (id, routine_id, date, performed_by_name, values_json, pass_override, notes,
+             analyzed_with_pylinac, auto_generated, raw_metrics_json, source_files_json, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                res_id,
+                data["routineId"],
+                data["date"],
+                data.get("performedByName"),
+                json.dumps(data.get("values") or {}),
+                None if data.get("passOverride") is None else (1 if data.get("passOverride") else 0),
+                data.get("notes"),
+                1 if data.get("analyzedWithPylinac") else 0,
+                1 if data.get("autoGenerated") else 0,
+                json.dumps(data["rawMetrics"]) if data.get("rawMetrics") is not None else None,
+                json.dumps(data.get("sourceFiles") or []),
+                now_iso(),
+            ),
+        )
+    return res_id
+
+
+def set_result_approval(result_id, approval):
+    with get_conn() as conn:
+        if approval is None:
+            conn.execute(
+                "UPDATE results SET approval_user_id=NULL, approval_username=NULL, approval_full_name=NULL, approval_at=NULL WHERE id=?",
+                (result_id,),
+            )
+        else:
+            conn.execute(
+                "UPDATE results SET approval_user_id=?, approval_username=?, approval_full_name=?, approval_at=? WHERE id=?",
+                (approval["userId"], approval["username"], approval["fullName"], approval["approvedAt"], result_id),
+            )
+
+
+def delete_result(result_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM results WHERE id = ?", (result_id,))
+
+
+# ------------------------------------------------------------------
+# Pastas observadas
+# ------------------------------------------------------------------
+def list_watch_folders(active_only=False):
+    with get_conn() as conn:
+        q = "SELECT * FROM watch_folders"
+        if active_only:
+            q += " WHERE active = 1"
+        rows = conn.execute(q + " ORDER BY created_at").fetchall()
+        return [_row_to_watch_folder(r) for r in rows]
+
+
+def create_watch_folder(routine_id, folder_path):
+    wid = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO watch_folders (id, routine_id, folder_path, active, created_at) VALUES (?,?,?,1,?)",
+            (wid, routine_id, folder_path, now_iso()),
+        )
+    return wid
+
+
+def set_watch_folder_active(wid, active):
+    with get_conn() as conn:
+        conn.execute("UPDATE watch_folders SET active = ? WHERE id = ?", (1 if active else 0, wid))
+
+
+def set_watch_folder_error(wid, error):
+    with get_conn() as conn:
+        conn.execute("UPDATE watch_folders SET last_error = ? WHERE id = ?", (error, wid))
+
+
+def delete_watch_folder(wid):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM watch_folders WHERE id = ?", (wid,))

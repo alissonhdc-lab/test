@@ -1,10 +1,17 @@
 """
-main.py — Backend de análise pylinac para a plataforma de CQ em Radioterapia.
+main.py — Backend da plataforma de CQ em Radioterapia.
 
-Este serviço roda localmente (ou em um servidor da sua rede) e expõe uma API
-HTTP que o app (estático, hospedado no GitHub Pages ou aberto localmente)
-chama para enviar arquivos DICOM e receber de volta os resultados calculados
-pelo pylinac, prontos para alimentar os gráficos de tendência.
+Este serviço roda localmente (ou em um servidor da sua rede) e agora é a
+fonte de dados da aplicação inteira (usuários, equipamentos, rotinas e
+resultados ficam num banco SQLite local, não mais no navegador). Ele expõe:
+
+- API REST para o app (estático, hospedado no GitHub Pages ou aberto
+  localmente) ler/gravar todos os dados;
+- /api/analyze para rodar o pylinac sobre arquivos DICOM enviados pelo
+  navegador;
+- um observador de pastas em segundo plano que analisa automaticamente
+  arquivos novos em pastas configuradas por rotina, mesmo sem nenhum
+  navegador aberto.
 
 Rodar:
     pip install -r requirements.txt
@@ -16,28 +23,26 @@ Veja README.md nesta pasta para instruções completas.
 import json
 import logging
 import os
-import re
 import shutil
 import tempfile
-import traceback
 from pathlib import Path
 from typing import List, Optional
 
-import pydicom
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import auth
+import db
+import watcher
+from analysis import AnalysisError, run_analysis
 from modules_config import MODULES
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rtqc-backend")
 
-app = FastAPI(title="RTQC pylinac backend", version="1.0")
+app = FastAPI(title="RTQC backend", version="2.0")
 
-# CORS liberado por padrão (o app roda no navegador de quem faz o upload;
-# como o backend normalmente fica em localhost/rede interna, isso é
-# aceitável). Restrinja via RTQC_ALLOWED_ORIGINS se publicar em rede maior.
 allowed_origins = os.environ.get("RTQC_ALLOWED_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
@@ -55,95 +60,250 @@ def check_api_key(x_api_key: Optional[str]):
         raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente (cabeçalho X-API-Key).")
 
 
+@app.on_event("startup")
+def on_startup():
+    db.init_db()
+    watcher.start()
+    logger.info("Backend pronto. Banco de dados: %s", db.DB_PATH)
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "modules": sorted(MODULES.keys())}
 
 
-def flatten(obj, prefix="", exclude_prefixes=()):
-    """Achata um resultado pylinac (já convertido em dict/list/escalar via
-    model_dump()) em um dicionário de chaves com ponto, mantendo apenas
-    valores simples (número, texto, booleano) e listas curtas de escalares."""
-    out = {}
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            key = f"{prefix}.{k}" if prefix else str(k)
-            if any(key == p or key.startswith(p + ".") or key.startswith(p + "[") for p in exclude_prefixes):
-                continue
-            out.update(flatten(v, key, exclude_prefixes))
-    elif isinstance(obj, (list, tuple)):
-        if len(obj) <= 8 and all(isinstance(x, (int, float, str, bool)) or x is None for x in obj):
-            for i, x in enumerate(obj):
-                out[f"{prefix}[{i}]"] = x
-        # listas grandes/complexas (ex.: posição de cada lâmina) são omitidas
-        # do resultado achatado para manter a resposta enxuta.
-    elif isinstance(obj, (int, float, str, bool)) or obj is None:
-        out[prefix] = obj
-    else:
-        try:
-            out[prefix] = str(obj)
-        except Exception:
-            pass
-    return out
+# ==================================================================
+# Autenticação / usuários
+# ==================================================================
+@app.get("/api/auth/status")
+def auth_status():
+    return {"hasUsers": len(db.list_users()) > 0}
 
 
-FIELD_NAME_TAG = (0x0008, 0x103E)  # SeriesDescription
-
-# Convenção de nomenclatura do serviço: "...PFG<gantry>C<colimador>"
-# (ex.: "...+PFG0C270" -> gantry 0, colimador 270). Essa string é a fonte
-# confiável do ângulo de colimador real usado — mais confiável, nesse fluxo
-# de trabalho, do que a tag DICOM de colimador (BeamLimitingDeviceAngle).
-FIELD_NAME_ANGLES_RE = re.compile(r"PFG(-?\d+(?:\.\d+)?)C(-?\d+(?:\.\d+)?)", re.IGNORECASE)
-
-
-def extract_dicom_angles(filepath):
-    """Lê ângulo de gantry e mesa direto do cabeçalho DICOM (tags padrão do
-    módulo RT Image), e o ângulo de colimador a partir do nome do campo
-    (SeriesDescription), quando presentes."""
-    tags = {
-        "dicom_gantry_angle_deg": (0x300A, 0x011E),
-        "dicom_collimator_angle_deg": (0x300A, 0x0120),
-        "dicom_couch_angle_deg": (0x300A, 0x0122),
-    }
-    out = {}
+@app.post("/api/auth/setup")
+def auth_setup(data: dict = Body(...)):
+    if len(db.list_users()) > 0:
+        raise HTTPException(status_code=400, detail="Já existem usuários cadastrados.")
     try:
-        ds = pydicom.dcmread(str(filepath), stop_before_pixels=True, force=True)
-        for key, tag in tags.items():
-            if tag in ds:
-                try:
-                    out[key] = float(ds[tag].value)
-                except (TypeError, ValueError):
-                    pass
-
-        field_name_elem = ds.get(FIELD_NAME_TAG, None)
-        field_name = str(field_name_elem.value) if field_name_elem else ""
-        out["dicom_field_name"] = field_name
-        match = FIELD_NAME_ANGLES_RE.search(field_name)
-        if match:
-            out["dicom_collimator_angle_deg"] = float(match.group(2))
-    except Exception:
-        pass
-    return out
+        uid = auth.create_user(data["fullName"], data["username"], data["password"], "admin")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return auth.public_user(db.get_user_by_id(uid))
 
 
-def build_kwargs(config, params: dict, map_key="param_map", cast_key="param_cast"):
-    param_map = config.get(map_key, {})
-    param_cast = config.get(cast_key, {})
-    kwargs = {}
-    for form_key, pylinac_key in param_map.items():
-        if form_key not in params:
-            continue
-        raw = params[form_key]
-        cast = param_cast.get(form_key)
-        try:
-            value = cast(raw) if cast else raw
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Parâmetro inválido '{form_key}': {e}")
-        if value is not None and value != "":
-            kwargs[pylinac_key] = value
-    return kwargs
+@app.post("/api/auth/login")
+def auth_login(data: dict = Body(...)):
+    user = auth.verify_credentials(data.get("username", ""), data.get("password", ""))
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos.")
+    return auth.public_user(user)
 
 
+@app.post("/api/auth/verify")
+def auth_verify(data: dict = Body(...)):
+    """Usado para a assinatura eletrônica de aprovação de resultados."""
+    user = auth.verify_credentials(data.get("username", ""), data.get("password", ""))
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos.")
+    return auth.public_user(user)
+
+
+@app.get("/api/usuarios")
+def list_usuarios():
+    return [auth.public_user(u) for u in db.list_users()]
+
+
+@app.post("/api/usuarios")
+def create_usuario(data: dict = Body(...)):
+    try:
+        uid = auth.create_user(data["fullName"], data["username"], data["password"], data.get("role", "tecnico"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return auth.public_user(db.get_user_by_id(uid))
+
+
+@app.post("/api/usuarios/{user_id}/reset-password")
+def reset_password(user_id: str, data: dict = Body(...)):
+    if not db.get_user_by_id(user_id):
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    auth.change_password(user_id, data["password"])
+    return {"success": True}
+
+
+@app.delete("/api/usuarios/{user_id}")
+def delete_usuario(user_id: str):
+    db.delete_user(user_id)
+    return {"success": True}
+
+
+# ==================================================================
+# Equipamentos
+# ==================================================================
+@app.get("/api/equipamentos")
+def list_equipamentos():
+    return db.list_equipments()
+
+
+@app.post("/api/equipamentos")
+def create_equipamento(data: dict = Body(...)):
+    eid = db.create_equipment(data)
+    return next(e for e in db.list_equipments() if e["id"] == eid)
+
+
+@app.put("/api/equipamentos/{eid}")
+def update_equipamento(eid: str, data: dict = Body(...)):
+    db.update_equipment(eid, data)
+    return {"success": True}
+
+
+@app.delete("/api/equipamentos/{eid}")
+def delete_equipamento(eid: str):
+    db.delete_equipment(eid)
+    return {"success": True}
+
+
+# ==================================================================
+# Rotinas
+# ==================================================================
+@app.get("/api/rotinas")
+def list_rotinas(equipment_id: Optional[str] = Query(None)):
+    return db.list_routines(equipment_id)
+
+
+@app.post("/api/rotinas")
+def create_rotina(data: dict = Body(...)):
+    rid = db.create_routine(data)
+    return db.get_routine(rid)
+
+
+@app.put("/api/rotinas/{rid}")
+def update_rotina(rid: str, data: dict = Body(...)):
+    if not db.get_routine(rid):
+        raise HTTPException(status_code=404, detail="Rotina não encontrada.")
+    db.update_routine(rid, data)
+    return db.get_routine(rid)
+
+
+@app.delete("/api/rotinas/{rid}")
+def delete_rotina(rid: str):
+    db.delete_routine(rid)
+    return {"success": True}
+
+
+# ==================================================================
+# Resultados
+# ==================================================================
+@app.get("/api/resultados")
+def list_resultados(routine_id: Optional[str] = Query(None)):
+    return db.list_results(routine_id)
+
+
+@app.post("/api/resultados")
+def create_resultado(data: dict = Body(...)):
+    rid = db.create_result(data)
+    return db.get_result(rid)
+
+
+@app.post("/api/resultados/{result_id}/approve")
+def approve_resultado(result_id: str, data: dict = Body(...)):
+    if not db.get_result(result_id):
+        raise HTTPException(status_code=404, detail="Resultado não encontrado.")
+    user = auth.verify_credentials(data.get("username", ""), data.get("password", ""))
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos para assinatura de aprovação.")
+    approval = {
+        "userId": user["id"],
+        "username": user["username"],
+        "fullName": user["fullName"],
+        "approvedAt": db.now_iso(),
+    }
+    db.set_result_approval(result_id, approval)
+    return db.get_result(result_id)
+
+
+@app.delete("/api/resultados/{result_id}")
+def delete_resultado(result_id: str):
+    db.delete_result(result_id)
+    return {"success": True}
+
+
+# ==================================================================
+# Pastas observadas (análise automática)
+# ==================================================================
+@app.get("/api/watch-folders")
+def list_watch_folders(routine_id: Optional[str] = Query(None)):
+    folders = db.list_watch_folders()
+    if routine_id:
+        folders = [f for f in folders if f["routineId"] == routine_id]
+    return folders
+
+
+@app.post("/api/watch-folders")
+def create_watch_folder(data: dict = Body(...)):
+    routine = db.get_routine(data["routineId"])
+    if not routine:
+        raise HTTPException(status_code=404, detail="Rotina não encontrada.")
+    if not routine.get("moduleId") or routine.get("testType") != "pylinac":
+        raise HTTPException(status_code=400, detail="Só é possível observar uma pasta para rotinas vinculadas a um módulo pylinac.")
+    wid = db.create_watch_folder(data["routineId"], data["folderPath"])
+    return next(f for f in db.list_watch_folders() if f["id"] == wid)
+
+
+@app.put("/api/watch-folders/{wid}")
+def update_watch_folder(wid: str, data: dict = Body(...)):
+    db.set_watch_folder_active(wid, data.get("active", True))
+    return {"success": True}
+
+
+@app.delete("/api/watch-folders/{wid}")
+def delete_watch_folder(wid: str):
+    db.delete_watch_folder(wid)
+    return {"success": True}
+
+
+# ==================================================================
+# Backup / restauração
+# ==================================================================
+@app.get("/api/backup/export")
+def backup_export():
+    return {
+        "version": 2,
+        "users": db.list_users(),
+        "equipments": db.list_equipments(),
+        "routines": db.list_routines(),
+        "results": db.list_results(),
+        "watchFolders": db.list_watch_folders(),
+    }
+
+
+@app.post("/api/backup/import")
+def backup_import(data: dict = Body(...)):
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM results")
+        conn.execute("DELETE FROM watch_folders")
+        conn.execute("DELETE FROM routines")
+        conn.execute("DELETE FROM equipments")
+        conn.execute("DELETE FROM users")
+
+    for u in data.get("users", []):
+        db.create_user(u["fullName"], u["username"], u.get("role", "tecnico"), u["salt"], u["passwordHash"])
+    for e in data.get("equipments", []):
+        db.create_equipment(e)
+    for r in data.get("routines", []):
+        db.create_routine(r)
+    for res in data.get("results", []):
+        rid = db.create_result(res)
+        if res.get("approval"):
+            db.set_result_approval(rid, res["approval"])
+    for wf in data.get("watchFolders", []):
+        db.create_watch_folder(wf["routineId"], wf["folderPath"])
+
+    return {"success": True}
+
+
+# ==================================================================
+# Análise manual (upload pelo navegador)
+# ==================================================================
 @app.post("/api/analyze")
 async def analyze(
     module_id: str = Form(...),
@@ -153,32 +313,12 @@ async def analyze(
 ):
     check_api_key(x_api_key)
 
-    if module_id not in MODULES:
-        raise HTTPException(status_code=404, detail=f"Módulo desconhecido: {module_id}")
-
     try:
         params_dict = json.loads(params) if params else {}
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Campo 'params' não é um JSON válido.")
 
-    config = MODULES[module_id]
-
-    # Resolve a classe pylinac (CatPhan tem 4 variantes conforme o modelo do fantoma)
-    if "cls_by_model" in config:
-        model = params_dict.get("phantom_model")
-        cls = config["cls_by_model"].get(model)
-        if cls is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"phantom_model inválido ou ausente. Opções: {list(config['cls_by_model'].keys())}",
-            )
-    else:
-        cls = config["cls"]
-
-    input_mode = config["input_mode"]
     tmp_dir = tempfile.mkdtemp(prefix="rtqc_")
-    warnings_list = []
-
     try:
         saved_paths = []
         for f in files:
@@ -187,80 +327,10 @@ async def analyze(
                 shutil.copyfileobj(f.file, out)
             saved_paths.append(dest)
 
-        if len(saved_paths) == 0:
-            raise HTTPException(status_code=400, detail="Nenhum arquivo enviado.")
+        result = run_analysis(module_id, params_dict, saved_paths, tmp_dir)
+        return JSONResponse({"success": True, "module_id": module_id, **result})
 
-        constructor_kwargs = build_kwargs(config, params_dict, "constructor_param_map", "constructor_param_cast")
-
-        # ---- Constrói a instância pylinac conforme o modo de entrada ----
-        if input_mode == "single":
-            if len(saved_paths) != 1:
-                raise HTTPException(status_code=400, detail="Este teste espera exatamente 1 arquivo.")
-            instance = cls(str(saved_paths[0]), **constructor_kwargs)
-
-        elif input_mode == "pair":
-            if len(saved_paths) != 2:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Este teste espera exatamente 2 arquivos (campo aberto e campo de teste, nesta ordem).",
-                )
-            instance = cls([str(p) for p in saved_paths])
-
-        elif input_mode == "multiple":
-            # Winston-Lutz e similares: aceitam um diretório com as imagens
-            instance = cls(tmp_dir)
-
-        elif input_mode == "series":
-            if len(saved_paths) == 1 and saved_paths[0].suffix.lower() == ".zip":
-                instance = cls(str(saved_paths[0]), is_zip=True)
-            else:
-                instance = cls(tmp_dir)
-
-        else:
-            raise HTTPException(status_code=500, detail=f"input_mode não suportado: {input_mode}")
-
-        analyze_kwargs = build_kwargs(config, params_dict)
-        instance.analyze(**analyze_kwargs)
-
-        results = instance.results_data()
-        results_dict = results.model_dump() if hasattr(results, "model_dump") else results
-        flat = flatten(results_dict, exclude_prefixes=config.get("exclude_prefixes", ()))
-
-        postprocess = config.get("postprocess")
-        if postprocess:
-            flat = postprocess(flat)
-
-        if config.get("extract_dicom_angles") and len(saved_paths) >= 1:
-            flat.update(extract_dicom_angles(saved_paths[0]))
-
-        if isinstance(results_dict, dict) and results_dict.get("warnings"):
-            warnings_list = [str(w) for w in results_dict.get("warnings", [])]
-
-        return JSONResponse(
-            {
-                "success": True,
-                "module_id": module_id,
-                "metrics": flat,
-                "warnings": warnings_list,
-            }
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        full_trace = traceback.format_exc()
-        logger.error("Falha ao analisar módulo %s: %s", module_id, full_trace)
-        hint = ""
-        msg = str(e).lower()
-        if "nan" in msg and module_id == "picketfence":
-            hint = (
-                " — Dica: isso costuma acontecer quando o modelo de MLC configurado na "
-                "rotina não bate com a máquina real da imagem, a orientação dos pickets "
-                "está trocada (Up-Down/Left-Right), ou a imagem precisa da opção "
-                "'Inverter imagem'. Confira esses parâmetros na rotina e tente de novo."
-            )
-        elif "nan" in msg:
-            hint = " — Dica: confira se o arquivo enviado é realmente do tipo de teste selecionado e se os parâmetros da rotina (orientação, inversão, etc.) batem com a imagem."
-        raise HTTPException(status_code=422, detail=f"Falha na análise pylinac: {e}{hint}")
+    except AnalysisError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
