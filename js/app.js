@@ -103,7 +103,11 @@
     }
 
     const parts = parseHash();
-    const route = parts[0] || "dashboard";
+    let route = parts[0] || "dashboard";
+    if ((route === "usuarios" || route === "backup") && session.role !== "admin") {
+      location.hash = "#/dashboard";
+      route = "dashboard";
+    }
 
     let db;
     try {
@@ -119,14 +123,14 @@
     if (route === "dashboard") {
       content = ui.renderDashboard(db);
     } else if (route === "equipamentos" && parts.length === 1) {
-      content = ui.renderEquipmentsList(db);
+      content = ui.renderEquipmentsList(db, session);
     } else if (route === "equipamentos" && parts.length === 2) {
       const eq = db.equipments.find((e) => e.id === parts[1]);
       if (!eq) {
         location.hash = "#/equipamentos";
         return;
       }
-      content = ui.renderEquipmentDetail(db, eq);
+      content = ui.renderEquipmentDetail(db, eq, session);
     } else if (route === "equipamentos" && parts.length === 4 && parts[2] === "rotinas") {
       const eq = db.equipments.find((e) => e.id === parts[1]);
       const routine = db.routines.find((r) => r.id === parts[3]);
@@ -137,13 +141,15 @@
       if (!trendSelection[routine.id]) {
         trendSelection[routine.id] = defaultTrendMetrics(routine);
       }
-      watchFolders = await store.listWatchFolders(routine.id);
+      // Pastas observadas são configuração administrativa — técnicos não têm
+      // acesso a esse endpoint (403), então nem tentamos buscá-las para eles.
+      watchFolders = session.role === "admin" ? await store.listWatchFolders(routine.id) : [];
       const allResults = db.results.filter((r) => r.routineId === routine.id);
       const filters = getOrInitFilters(routine.id);
       const filteredResults = applyResultFilters(routine, allResults, filters);
       const filterOptions = buildFilterOptions(allResults);
       lastRoutineView = { routineId: routine.id, routine, filteredResults };
-      content = ui.renderRoutineDetail(db, eq, routine, trendSelection[routine.id], watchFolders, allResults, filteredResults, filters, filterOptions);
+      content = ui.renderRoutineDetail(db, eq, routine, trendSelection[routine.id], watchFolders, allResults, filteredResults, filters, filterOptions, session);
     } else if (route === "usuarios") {
       content = ui.renderUsers(db, session);
     } else if (route === "backup") {
@@ -352,7 +358,7 @@
         const db = await store.get();
         const result = db.results.find((x) => x.id === el.dataset.id);
         const routine = db.routines.find((x) => x.id === result.routineId);
-        modal.openModal({ title: "Detalhe do resultado", bodyHtml: ui.resultDetailHtml(routine, result), wide: true });
+        modal.openModal({ title: "Detalhe do resultado", bodyHtml: ui.resultDetailHtml(routine, result, auth.currentSession()), wide: true });
         break;
       }
       case "approve-result":

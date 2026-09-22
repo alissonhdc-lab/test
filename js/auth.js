@@ -36,6 +36,7 @@
         username: user.username,
         fullName: user.fullName,
         role: user.role,
+        token: user.token,
         loginAt: new Date().toISOString(),
       };
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
@@ -43,6 +44,8 @@
     },
 
     logout() {
+      // Best-effort: invalida o token no backend também, não só localmente.
+      global.RTQC.store.api.apiPost("/api/auth/logout", {}).catch(() => {});
       sessionStorage.removeItem(SESSION_KEY);
     },
 

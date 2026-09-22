@@ -10,6 +10,7 @@
   "use strict";
 
   const BACKEND_URL_KEY = "rtqc_backend_url_v1";
+  const SESSION_KEY = "rtqc_session_v1";
 
   function getBackendUrl() {
     return localStorage.getItem(BACKEND_URL_KEY) || "http://localhost:8420";
@@ -18,7 +19,25 @@
     localStorage.setItem(BACKEND_URL_KEY, url.trim().replace(/\/+$/, ""));
   }
 
+  // Lê o token de sessão diretamente do sessionStorage (em vez de importar
+  // auth.js aqui) para evitar uma dependência circular entre store.js e
+  // auth.js — auth.js já usa a mesma chave/formato para gravar a sessão.
+  function getSessionToken() {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      const session = raw ? JSON.parse(raw) : null;
+      return session ? session.token : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function apiFetch(path, options) {
+    options = options || {};
+    const token = getSessionToken();
+    if (token) {
+      options.headers = Object.assign({}, options.headers, { Authorization: `Bearer ${token}` });
+    }
     let resp;
     try {
       resp = await fetch(getBackendUrl() + path, options);
@@ -70,8 +89,12 @@
     },
 
     async get() {
+      // /api/usuarios é restrito a administradores — para um usuário
+      // técnico essa chamada retorna 403; como a lista de usuários só é
+      // usada nas telas de Usuários/Backup (ambas só visíveis para admin),
+      // tratamos essa falha isoladamente em vez de derrubar a tela inteira.
       const [users, equipments, routines, results] = await Promise.all([
-        apiGet("/api/usuarios"),
+        apiGet("/api/usuarios").catch(() => []),
         apiGet("/api/equipamentos"),
         apiGet("/api/rotinas"),
         apiGet("/api/resultados"),

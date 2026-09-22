@@ -119,13 +119,14 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // Shell (layout com barra lateral)
   // ------------------------------------------------------------------
   function renderShell(activeRoute, session, contentHtml) {
+    const isAdmin = session.role === "admin";
     const nav = [
       { route: "dashboard", label: "Painel", icon: "📊" },
       { route: "equipamentos", label: "Equipamentos", icon: "🏥" },
-      { route: "usuarios", label: "Usuários", icon: "👤" },
-      { route: "backup", label: "Backup", icon: "💾" },
+      isAdmin && { route: "usuarios", label: "Usuários", icon: "👤" },
+      isAdmin && { route: "backup", label: "Backup", icon: "💾" },
       { route: "ajuda", label: "Ajuda", icon: "❓" },
-    ];
+    ].filter(Boolean);
     const navHtml = nav
       .map(
         (n) => `<a href="#/${n.route}" class="nav-link ${activeRoute === n.route ? "active" : ""}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`
@@ -225,7 +226,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Equipamentos — listagem
   // ------------------------------------------------------------------
-  function renderEquipmentsList(db) {
+  function renderEquipmentsList(db, session) {
+    const isAdmin = session.role === "admin";
     const cards = db.equipments
       .map((eq) => {
         const routineCount = db.routines.filter((r) => r.equipmentId === eq.id && r.active !== false).length;
@@ -246,7 +248,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return `
       <div class="page-header">
         <h2>Equipamentos</h2>
-        <button class="btn btn-primary" data-action="new-equipment">+ Novo equipamento</button>
+        ${isAdmin ? `<button class="btn btn-primary" data-action="new-equipment">+ Novo equipamento</button>` : ""}
       </div>
       ${
         db.equipments.length === 0
@@ -298,8 +300,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Detalhe do equipamento — rotinas agrupadas por frequência
   // ------------------------------------------------------------------
-  function renderEquipmentDetail(db, equipment) {
+  function renderEquipmentDetail(db, equipment, session) {
     const { util } = global.RTQC;
+    const isAdmin = session.role === "admin";
     const routines = db.routines.filter((r) => r.equipmentId === equipment.id);
 
     const groups = Object.keys(FREQUENCIES).map((freqKey) => {
@@ -326,8 +329,12 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
               <td>${due.nextDue ? fmtDate(due.nextDue) : "—"}</td>
               <td>${statusBadge(due.status)}</td>
               <td class="row-actions">
-                <button class="icon-btn" data-action="edit-routine" data-id="${r.id}" title="Editar">✎</button>
-                <button class="icon-btn" data-action="delete-routine" data-id="${r.id}" title="Excluir">🗑</button>
+                ${
+                  isAdmin
+                    ? `<button class="icon-btn" data-action="edit-routine" data-id="${r.id}" title="Editar">✎</button>
+                <button class="icon-btn" data-action="delete-routine" data-id="${r.id}" title="Excluir">🗑</button>`
+                    : ""
+                }
               </td>
             </tr>`;
           })
@@ -351,9 +358,13 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <p class="muted">${esc(equipment.manufacturer || "")} ${equipment.model ? "· " + esc(equipment.model) : ""} ${equipment.location ? "· " + esc(equipment.location) : ""}</p>
         </div>
         <div class="header-actions">
-          <button class="btn" data-action="edit-equipment" data-id="${equipment.id}">Editar equipamento</button>
+          ${
+            isAdmin
+              ? `<button class="btn" data-action="edit-equipment" data-id="${equipment.id}">Editar equipamento</button>
           <button class="btn btn-danger" data-action="delete-equipment" data-id="${equipment.id}">Excluir</button>
-          <button class="btn btn-primary" data-action="new-routine" data-equipment-id="${equipment.id}">+ Nova rotina de CQ</button>
+          <button class="btn btn-primary" data-action="new-routine" data-equipment-id="${equipment.id}">+ Nova rotina de CQ</button>`
+              : ""
+          }
         </div>
       </div>
       ${routines.length === 0 ? `<div class="empty-state">Nenhuma rotina de CQ cadastrada para este equipamento ainda.</div>` : groupsHtml}
@@ -538,7 +549,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Detalhe da rotina — resultados, tendências, aprovação
   // ------------------------------------------------------------------
-  function renderRoutineDetail(db, equipment, routine, selectedMetricKeys, watchFolders, allResults, filteredResults, filters, filterOptions) {
+  function renderRoutineDetail(db, equipment, routine, selectedMetricKeys, watchFolders, allResults, filteredResults, filters, filterOptions, session) {
+    const isAdmin = session.role === "admin";
     const module = routine.testType === "pylinac" ? getModuleById(routine.moduleId) : MANUAL_TEST_TYPE;
     const results = (filteredResults || db.results.filter((r) => r.routineId === routine.id)).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
     allResults = allResults || results;
@@ -571,8 +583,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <td>${approvalBadge(res)}</td>
           <td class="row-actions">
             <button class="icon-btn" data-action="view-result" data-id="${res.id}" title="Ver detalhes">👁</button>
-            ${!res.approval ? `<button class="icon-btn" data-action="approve-result" data-id="${res.id}" title="Aprovar">✔</button>` : ""}
-            <button class="icon-btn" data-action="delete-result" data-id="${res.id}" title="Excluir">🗑</button>
+            ${!res.approval && isAdmin ? `<button class="icon-btn" data-action="approve-result" data-id="${res.id}" title="Aprovar">✔</button>` : ""}
+            ${isAdmin || !res.approval ? `<button class="icon-btn" data-action="delete-result" data-id="${res.id}" title="Excluir">🗑</button>` : ""}
           </td>
         </tr>`;
       })
@@ -586,12 +598,12 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <p class="muted">${esc(module ? module.name : "")} · ${esc(FREQUENCIES[routine.frequency]?.label)} ${routine.testType === "pylinac" && module.pylinacRef ? "· <code>" + esc(module.pylinacRef) + "</code>" : ""}</p>
         </div>
         <div class="header-actions">
-          <button class="btn" data-action="edit-routine" data-id="${routine.id}">Editar rotina</button>
+          ${isAdmin ? `<button class="btn" data-action="edit-routine" data-id="${routine.id}">Editar rotina</button>` : ""}
           <button class="btn btn-primary" data-action="new-result" data-routine-id="${routine.id}">+ Registrar resultado</button>
         </div>
       </div>
 
-      ${module && module.requiresFiles ? watchFolderPanelHtml(routine, watchFolders) : ""}
+      ${isAdmin && module && module.requiresFiles ? watchFolderPanelHtml(routine, watchFolders) : ""}
 
       ${allResults.length > 0 ? resultFiltersHtml(filters || defaultFilters(), filterOptions || {}) : ""}
 
@@ -883,7 +895,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return "";
   }
 
-  function resultDetailHtml(routine, result) {
+  function resultDetailHtml(routine, result, session) {
+    const isAdmin = session.role === "admin";
     const metrics = routine.metrics || [];
     const rows = metrics
       .map((m) => {
@@ -917,7 +930,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         }
         <div class="form-actions">
           <button type="button" class="btn" data-action="close-modal">Fechar</button>
-          ${!result.approval ? `<button type="button" class="btn btn-primary" data-action="approve-result" data-id="${result.id}">Aprovar resultado</button>` : ""}
+          ${!result.approval && isAdmin ? `<button type="button" class="btn btn-primary" data-action="approve-result" data-id="${result.id}">Aprovar resultado</button>` : ""}
         </div>
       </div>`;
   }

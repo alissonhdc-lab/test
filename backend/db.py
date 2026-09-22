@@ -156,6 +156,12 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     last_error TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -286,6 +292,35 @@ def update_user_password(user_id, salt, password_hash):
 def delete_user(user_id):
     with get_conn() as conn:
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+# ------------------------------------------------------------------
+# Sessões (tokens de autenticação por requisição)
+# ------------------------------------------------------------------
+def create_session(user_id):
+    token = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO sessions (token, user_id, created_at) VALUES (?,?,?)",
+            (token, user_id, now_iso()),
+        )
+    return token
+
+
+def get_user_by_token(token):
+    if not token:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?",
+            (token,),
+        ).fetchone()
+        return _row_to_user(row) if row else None
+
+
+def delete_session(token):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
 
 
 # ------------------------------------------------------------------
@@ -524,6 +559,7 @@ def import_backup(data):
             conn.execute("PRAGMA foreign_keys = ON")
             try:
                 conn.execute("BEGIN")
+                conn.execute("DELETE FROM sessions")
                 conn.execute("DELETE FROM results")
                 conn.execute("DELETE FROM watch_folders")
                 conn.execute("DELETE FROM routines")
