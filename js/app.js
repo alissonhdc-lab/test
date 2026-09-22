@@ -11,6 +11,59 @@
   const appRoot = document.getElementById("app");
 
   let trendSelection = {}; // routineId -> [metricKey,...]
+  let resultFilters = {}; // routineId -> {gantry:Set, collimator:Set, status:Set, dateRange}
+  let lastRoutineView = null; // { routineId, routine, filteredResults } — usado por drawTrendChart/resize
+
+  function getOrInitFilters(routineId) {
+    if (!resultFilters[routineId]) resultFilters[routineId] = ui.defaultFilters();
+    return resultFilters[routineId];
+  }
+
+  function formatAngle(v) {
+    const n = Number(v);
+    if (Number.isNaN(n)) return String(v);
+    const rounded = Math.round(n * 10) / 10;
+    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}°`;
+  }
+
+  function buildFilterOptions(allResults) {
+    const gantrySet = new Set();
+    const collimatorSet = new Set();
+    allResults.forEach((r) => {
+      if (r.values.dicom_gantry_angle_deg !== undefined) gantrySet.add(formatAngle(r.values.dicom_gantry_angle_deg));
+      if (r.values.dicom_collimator_angle_deg !== undefined) collimatorSet.add(formatAngle(r.values.dicom_collimator_angle_deg));
+    });
+    const sortByNumber = (a, b) => parseFloat(a) - parseFloat(b);
+    return {
+      gantryOptions: Array.from(gantrySet).sort(sortByNumber),
+      collimatorOptions: Array.from(collimatorSet).sort(sortByNumber),
+    };
+  }
+
+  function applyResultFilters(routine, allResults, filters) {
+    return allResults.filter((r) => {
+      if (filters.gantry.size > 0) {
+        if (r.values.dicom_gantry_angle_deg === undefined) return false;
+        if (!filters.gantry.has(formatAngle(r.values.dicom_gantry_angle_deg))) return false;
+      }
+      if (filters.collimator.size > 0) {
+        if (r.values.dicom_collimator_angle_deg === undefined) return false;
+        if (!filters.collimator.has(formatAngle(r.values.dicom_collimator_angle_deg))) return false;
+      }
+      if (filters.status.size > 0) {
+        const passed = ui.computeResultPass(routine, r);
+        const key = passed === true ? "pass" : passed === false ? "fail" : null;
+        if (!key || !filters.status.has(key)) return false;
+      }
+      if (filters.dateRange !== "all") {
+        const days = parseInt(filters.dateRange, 10);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - days);
+        if (new Date(r.date) < cutoff) return false;
+      }
+      return true;
+    });
+  }
 
   // ------------------------------------------------------------------
   // Roteamento
@@ -79,7 +132,12 @@
         trendSelection[routine.id] = defaultTrendMetrics(routine);
       }
       watchFolders = await store.listWatchFolders(routine.id);
-      content = ui.renderRoutineDetail(db, eq, routine, trendSelection[routine.id], watchFolders);
+      const allResults = db.results.filter((r) => r.routineId === routine.id);
+      const filters = getOrInitFilters(routine.id);
+      const filteredResults = applyResultFilters(routine, allResults, filters);
+      const filterOptions = buildFilterOptions(allResults);
+      lastRoutineView = { routineId: routine.id, routine, filteredResults };
+      content = ui.renderRoutineDetail(db, eq, routine, trendSelection[routine.id], watchFolders, allResults, filteredResults, filters, filterOptions);
     } else if (route === "usuarios") {
       content = ui.renderUsers(db, session);
     } else if (route === "backup") {
@@ -92,9 +150,8 @@
 
     appRoot.innerHTML = ui.renderShell(route, session, content);
 
-    if (route === "equipamentos" && parts.length === 4) {
-      const routine = db.routines.find((r) => r.id === parts[3]);
-      drawTrendChart(routine);
+    if (route === "equipamentos" && parts.length === 4 && lastRoutineView) {
+      drawTrendChart(lastRoutineView.routine, lastRoutineView.filteredResults);
     }
   }
 
@@ -106,10 +163,9 @@
     return [];
   }
 
-  async function drawTrendChart(routine) {
+  function drawTrendChart(routine, results) {
     const container = document.getElementById("trend-chart-container");
     if (!container) return;
-    const results = await store.resultsByRoutine(routine.id);
     const selected = trendSelection[routine.id] || [];
     const metricsByKey = {};
     (routine.metrics || []).forEach((m) => (metricsByKey[m.key] = m));
@@ -362,6 +418,32 @@
           },
         });
         break;
+      case "toggle-filter": {
+        const parts = parseHash();
+        const routineId = parts[3];
+        const filters = getOrInitFilters(routineId);
+        const set = filters[el.dataset.filterType];
+        const value = el.dataset.filterValue;
+        if (set.has(value)) set.delete(value);
+        else set.add(value);
+        render();
+        break;
+      }
+      case "set-date-filter": {
+        const parts = parseHash();
+        const routineId = parts[3];
+        const filters = getOrInitFilters(routineId);
+        filters.dateRange = el.dataset.value;
+        render();
+        break;
+      }
+      case "clear-filters": {
+        const parts = parseHash();
+        const routineId = parts[3];
+        resultFilters[routineId] = ui.defaultFilters();
+        render();
+        break;
+      }
       default:
         break;
     }
@@ -405,20 +487,16 @@
       const routineId = parts[3];
       const checks = Array.from(document.querySelectorAll(".trend-metric-check"));
       trendSelection[routineId] = checks.filter((c) => c.checked).map((c) => c.value);
-      store.get().then((db) => {
-        const routine = db.routines.find((r) => r.id === routineId);
-        drawTrendChart(routine);
-      });
+      if (lastRoutineView && lastRoutineView.routineId === routineId) {
+        drawTrendChart(lastRoutineView.routine, lastRoutineView.filteredResults);
+      }
     }
   });
 
   window.addEventListener("resize", () => {
     const parts = parseHash();
-    if (parts[0] === "equipamentos" && parts.length === 4) {
-      store.get().then((db) => {
-        const routine = db.routines.find((r) => r.id === parts[3]);
-        if (routine) drawTrendChart(routine);
-      });
+    if (parts[0] === "equipamentos" && parts.length === 4 && lastRoutineView && lastRoutineView.routineId === parts[3]) {
+      drawTrendChart(lastRoutineView.routine, lastRoutineView.filteredResults);
     }
   });
 

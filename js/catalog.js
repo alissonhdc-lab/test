@@ -87,15 +87,15 @@
         { key: "invert", label: "Inverter imagem", type: "checkbox", default: false },
       ],
       metrics: [
-        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info" },
-        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info" },
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "max_error_mm", label: "Erro máximo de lâmina", unit: "mm", tolType: "max", tol: 0.5 },
         { key: "absolute_median_error_mm", label: "Erro mediano absoluto", unit: "mm", tolType: "max", tol: 0.3 },
         { key: "percent_leaves_passing", label: "% de lâminas aprovadas", unit: "%", tolType: "min", tol: 100 },
         { key: "mean_picket_spacing_mm", label: "Espaçamento médio entre pickets", unit: "mm", tolType: "info" },
         { key: "mlc_skew", label: "Desvio angular (skew) do MLC", unit: "graus", tolType: "info" },
         { key: "number_of_pickets", label: "Nº de pickets detectados", unit: "", tolType: "info" },
-        { key: "passed", label: "Aprovado (pylinac)", unit: "", tolType: "bool" },
+        { key: "passed", label: "Aprovado (pylinac)", unit: "", tolType: "bool", plottable: false },
       ],
     },
     {

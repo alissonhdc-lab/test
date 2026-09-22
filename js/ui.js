@@ -538,13 +538,15 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Detalhe da rotina — resultados, tendências, aprovação
   // ------------------------------------------------------------------
-  function renderRoutineDetail(db, equipment, routine, selectedMetricKeys, watchFolders) {
+  function renderRoutineDetail(db, equipment, routine, selectedMetricKeys, watchFolders, allResults, filteredResults, filters, filterOptions) {
     const module = routine.testType === "pylinac" ? getModuleById(routine.moduleId) : MANUAL_TEST_TYPE;
-    const results = db.results.filter((r) => r.routineId === routine.id).sort((a, b) => new Date(b.date) - new Date(a.date));
+    const results = (filteredResults || db.results.filter((r) => r.routineId === routine.id)).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+    allResults = allResults || results;
     const metrics = routine.metrics || [];
     watchFolders = watchFolders || [];
 
-    const metricChecks = metrics
+    const plottableMetrics = metrics.filter((m) => m.plottable !== false);
+    const metricChecks = plottableMetrics
       .map(
         (m) => `
       <label class="checkbox-label inline">
@@ -591,17 +593,19 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
 
       ${module && module.requiresFiles ? watchFolderPanelHtml(routine, watchFolders) : ""}
 
+      ${allResults.length > 0 ? resultFiltersHtml(filters || defaultFilters(), filterOptions || {}) : ""}
+
       <div class="panel">
         <div class="panel-header"><h3>Tendência de resultados</h3></div>
-        <div class="trend-controls">${metricChecks || '<span class="muted">Nenhuma métrica configurada.</span>'}</div>
+        <div class="trend-controls">${metricChecks || '<span class="muted">Nenhuma métrica plotável configurada.</span>'}</div>
         <div id="trend-chart-container" class="chart-container"></div>
       </div>
 
       <div class="panel">
-        <div class="panel-header"><h3>Histórico de resultados</h3></div>
+        <div class="panel-header"><h3>Histórico de resultados ${allResults.length !== results.length ? `<span class="muted small">(${results.length} de ${allResults.length}, filtrado)</span>` : ""}</h3></div>
         ${
           results.length === 0
-            ? `<div class="empty-state">Nenhum resultado registrado ainda.</div>`
+            ? `<div class="empty-state">${allResults.length === 0 ? "Nenhum resultado registrado ainda." : "Nenhum resultado corresponde aos filtros selecionados."}</div>`
             : `<table class="data-table">
               <thead><tr><th>Data</th><th>Resumo</th><th>Resultado</th><th>Aprovação</th><th></th></tr></thead>
               <tbody>${resultRows}</tbody>
@@ -609,6 +613,73 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         }
       </div>
     `;
+  }
+
+  function defaultFilters() {
+    return { gantry: new Set(), collimator: new Set(), status: new Set(), dateRange: "all" };
+  }
+
+  function filterChip(type, value, label, activeSet) {
+    const active = activeSet.has(value);
+    return `<button type="button" class="filter-chip ${active ? "active" : ""}" data-action="toggle-filter" data-filter-type="${esc(type)}" data-filter-value="${esc(value)}">${esc(label)}</button>`;
+  }
+
+  function resultFiltersHtml(filters, filterOptions) {
+    const gantryOptions = filterOptions.gantryOptions || [];
+    const collimatorOptions = filterOptions.collimatorOptions || [];
+    const hasAnyActive = filters.gantry.size > 0 || filters.collimator.size > 0 || filters.status.size > 0 || filters.dateRange !== "all";
+
+    const gantrySection = gantryOptions.length
+      ? `<div class="filter-group">
+          <span class="filter-group-label">Gantry</span>
+          ${gantryOptions.map((v) => filterChip("gantry", v, v, filters.gantry)).join("")}
+        </div>`
+      : "";
+
+    const collimatorSection = collimatorOptions.length
+      ? `<div class="filter-group">
+          <span class="filter-group-label">Colimador</span>
+          ${collimatorOptions.map((v) => filterChip("collimator", v, v, filters.collimator)).join("")}
+        </div>`
+      : "";
+
+    const statusSection = `
+      <div class="filter-group">
+        <span class="filter-group-label">Situação</span>
+        ${filterChip("status", "pass", "✓ Conforme", filters.status)}
+        ${filterChip("status", "fail", "✗ Não conforme", filters.status)}
+      </div>`;
+
+    const dateOptions = [
+      ["all", "Tudo"],
+      ["7", "Últimos 7 dias"],
+      ["30", "Últimos 30 dias"],
+      ["90", "Últimos 90 dias"],
+    ];
+    const dateSection = `
+      <div class="filter-group">
+        <span class="filter-group-label">Período</span>
+        ${dateOptions
+          .map(
+            ([v, label]) =>
+              `<button type="button" class="filter-chip ${filters.dateRange === v ? "active" : ""}" data-action="set-date-filter" data-value="${v}">${esc(label)}</button>`
+          )
+          .join("")}
+      </div>`;
+
+    return `
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Filtros</h3>
+          ${hasAnyActive ? `<button type="button" class="btn" data-action="clear-filters">Limpar filtros</button>` : ""}
+        </div>
+        <div class="filters-wrap">
+          ${gantrySection}
+          ${collimatorSection}
+          ${statusSection}
+          ${dateSection}
+        </div>
+      </div>`;
   }
 
   function watchFolderPanelHtml(routine, watchFolders) {
@@ -991,6 +1062,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     renderSetupAdmin,
     renderLogin,
     renderBackendError,
+    defaultFilters,
     renderShell,
     renderDashboard,
     renderEquipmentsList,
