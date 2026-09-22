@@ -97,6 +97,29 @@ Os endpoints `/api/backup/export` e `/api/backup/import` (usados pela tela
 cópia de segurança "crua", também dá para simplesmente copiar o arquivo
 `rtqc.db` desta pasta.
 
+### Backup automático de segurança
+
+Além do export/import manual, a tela **Backup** tem um campo para
+configurar uma **pasta de backup automático**. Uma vez configurada:
+
+- Toda vez que qualquer dado for criado, alterado ou apagado (por qualquer
+  caminho — pela interface, pelo `/api/analyze`, ou pelo observador de
+  pastas), o backend grava sozinho uma cópia JSON atualizada em
+  `<pasta>/rtqc_backup.json` (gravação atômica: escreve num `.tmp` e troca
+  por cima do arquivo final, então nunca fica um arquivo pela metade).
+- Ao iniciar, o backend verifica: se essa pasta está configurada, o arquivo
+  existe, **e o banco atual está vazio** (sem nenhum usuário/equipamento —
+  o cenário de "perdi o `rtqc.db`"), ele restaura os dados sozinho a partir
+  desse JSON antes de aceitar requisições. Se o banco já tem dados, a
+  restauração automática é **ignorada** — isso é proposital, para nunca
+  sobrescrever dados atuais válidos com uma cópia mais antiga.
+- A configuração da pasta (`rtqc_config.json`) fica **fora** do banco
+  `rtqc.db` de propósito: se o próprio banco for perdido, ainda sabemos
+  onde procurar a última cópia para restaurar.
+- Use uma pasta de rede/nuvem sincronizada (ex.: um drive mapeado que
+  também é copiado para outro lugar) para essa proteção cobrir também a
+  perda do disco/computador inteiro, não só do arquivo `rtqc.db`.
+
 ## Avisos importantes
 
 - **HTTPS x HTTP (conteúdo misto):** se você abrir o app por `https://`

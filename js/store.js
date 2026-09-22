@@ -146,6 +146,17 @@
     exportBackup() {
       return apiGet("/api/backup/export");
     },
+
+    // ---- backup automático de segurança ----
+    getAutoBackupSetting() {
+      return apiGet("/api/settings/auto-backup");
+    },
+    setAutoBackupDir(dir) {
+      return apiPost("/api/settings/auto-backup", { autoBackupDir: dir });
+    },
+    runAutoBackupNow() {
+      return apiPost("/api/settings/auto-backup/run-now");
+    },
   };
 
   // ------------------------------------------------------------------

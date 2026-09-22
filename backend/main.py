@@ -64,6 +64,7 @@ def check_api_key(x_api_key: Optional[str]):
 @app.on_event("startup")
 def on_startup():
     db.init_db()
+    db.maybe_restore_from_auto_backup()
     watcher.start()
     logger.info("Backend pronto. Banco de dados: %s", db.DB_PATH)
 
@@ -289,6 +290,35 @@ def backup_import(data: dict = Body(...)):
             status_code=422,
             detail=f"Falha ao importar backup ({e}). Nenhum dado foi alterado — a importação é tudo-ou-nada.",
         )
+    return {"success": True}
+
+
+@app.get("/api/settings/auto-backup")
+def get_auto_backup_setting():
+    backup_dir = db.get_auto_backup_dir()
+    target = os.path.join(backup_dir, db.AUTO_BACKUP_FILENAME) if backup_dir else None
+    return {
+        "autoBackupDir": backup_dir,
+        "fileExists": bool(target and os.path.isfile(target)),
+        "filePath": target,
+    }
+
+
+@app.post("/api/settings/auto-backup")
+def set_auto_backup_setting(data: dict = Body(...)):
+    path = (data.get("autoBackupDir") or "").strip() or None
+    db.set_auto_backup_dir(path)
+    if path:
+        db.write_auto_backup_now()
+    return get_auto_backup_setting()
+
+
+@app.post("/api/settings/auto-backup/run-now")
+def run_auto_backup_now():
+    if not db.get_auto_backup_dir():
+        raise HTTPException(status_code=400, detail="Nenhuma pasta de backup automático configurada.")
+    db.write_auto_backup_now()
+    return get_auto_backup_setting()
     return {"success": True}
 
 

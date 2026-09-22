@@ -12,3 +12,6 @@ demo_files/
 # Banco de dados local do backend (dados reais do usuário, não versionar)
 backend/rtqc.db
 backend/rtqc.db-journal
+
+# Configuração local (caminho da pasta de backup automático, específico da máquina)
+backend/rtqc_config.json

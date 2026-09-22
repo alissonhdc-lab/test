@@ -141,7 +141,13 @@
     } else if (route === "usuarios") {
       content = ui.renderUsers(db, session);
     } else if (route === "backup") {
-      content = ui.renderBackup(db, store.getBackendUrl());
+      let autoBackupSetting = {};
+      try {
+        autoBackupSetting = await store.getAutoBackupSetting();
+      } catch (err) {
+        // segue sem essa informação; a página ainda funciona
+      }
+      content = ui.renderBackup(db, store.getBackendUrl(), autoBackupSetting);
     } else if (route === "ajuda") {
       content = ui.renderHelp();
     } else {
@@ -395,6 +401,43 @@
       }
       case "test-backend-connection":
         testBackendConnection();
+        break;
+      case "save-auto-backup-dir": {
+        const input = document.getElementById("auto-backup-dir-input");
+        if (!input.value.trim()) {
+          modal.toast("Informe um caminho de pasta.", "error");
+          break;
+        }
+        try {
+          await store.setAutoBackupDir(input.value.trim());
+          modal.toast("Pasta de backup automático salva.", "success");
+          render();
+        } catch (err) {
+          modal.toast(err.message, "error");
+        }
+        break;
+      }
+      case "run-auto-backup-now":
+        try {
+          await store.runAutoBackupNow();
+          modal.toast("Backup gravado.", "success");
+          render();
+        } catch (err) {
+          modal.toast(err.message, "error");
+        }
+        break;
+      case "disable-auto-backup":
+        modal.confirmModal({
+          title: "Desativar backup automático",
+          message: "O arquivo já gravado não será apagado, mas novas alterações deixarão de ser salvas automaticamente nele.",
+          confirmLabel: "Desativar",
+          danger: true,
+          onConfirm: async () => {
+            await store.setAutoBackupDir(null);
+            modal.toast("Backup automático desativado.", "success");
+            render();
+          },
+        });
         break;
       case "add-manual-metric":
         addManualMetricRow();

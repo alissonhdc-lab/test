@@ -980,7 +980,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Backup
   // ------------------------------------------------------------------
-  function renderBackup(db, backendUrl) {
+  function renderBackup(db, backendUrl, autoBackupSetting) {
+    autoBackupSetting = autoBackupSetting || {};
     return `
       <div class="page-header"><h2>Backup e dados</h2></div>
       <div class="panel">
@@ -994,6 +995,26 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <button class="btn" data-action="test-backend-connection">Testar conexão</button>
         </div>
         <div id="backend-connection-status" class="muted small mt"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h3>Backup automático de segurança</h3></div>
+        <p class="muted">Informe uma pasta (no computador onde o backend roda) para que, <b>toda vez que algo for criado ou alterado</b> no sistema, uma cópia JSON atualizada seja gravada sozinha nela (arquivo <code>rtqc_backup.json</code>). Se o banco de dados principal for perdido ou corrompido, na próxima vez que o backend iniciar — <b>e somente se o banco estiver vazio</b> — ele restaura automaticamente a partir dessa cópia.</p>
+        <label>Pasta de backup automático
+          <input type="text" id="auto-backup-dir-input" value="${esc(autoBackupSetting.autoBackupDir || "")}" placeholder="Ex.: Z:\\CQ\\Backup_CQ_Radioterapia" />
+        </label>
+        <div class="form-actions" style="justify-content:flex-start; margin-top:10px;">
+          <button class="btn" data-action="save-auto-backup-dir">Salvar pasta</button>
+          ${autoBackupSetting.autoBackupDir ? `<button class="btn" data-action="run-auto-backup-now">Gravar backup agora</button><button class="btn btn-danger" data-action="disable-auto-backup">Desativar</button>` : ""}
+        </div>
+        ${
+          autoBackupSetting.autoBackupDir
+            ? `<p class="small mt ${autoBackupSetting.fileExists ? "form-success" : "muted"}">${
+                autoBackupSetting.fileExists
+                  ? `✔ Backup automático ativo — último arquivo em <code>${esc(autoBackupSetting.filePath)}</code>`
+                  : "Backup automático ativo — ainda não foi gravado nenhum arquivo (vai gravar assim que algo for criado/alterado)."
+              }</p>`
+            : `<p class="muted small mt">Nenhuma pasta configurada — o backup automático está desativado.</p>`
+        }
       </div>
       <div class="panel">
         <div class="panel-header"><h3>Exportar</h3></div>

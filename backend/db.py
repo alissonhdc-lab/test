@@ -9,6 +9,7 @@ nenhum navegador aberto.
 """
 
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -18,7 +19,47 @@ from datetime import datetime, timezone
 
 DB_PATH = os.environ.get("RTQC_DB_PATH", os.path.join(os.path.dirname(__file__), "rtqc.db"))
 
+# Configuração do backup automático de segurança fica num arquivo separado do
+# banco (não dentro do rtqc.db) de propósito: se o próprio rtqc.db for
+# perdido ou corrompido — o cenário que este mecanismo existe para cobrir —
+# ainda precisamos saber onde procurar a última cópia JSON para restaurar.
+CONFIG_PATH = os.environ.get("RTQC_CONFIG_PATH", os.path.join(os.path.dirname(__file__), "rtqc_config.json"))
+AUTO_BACKUP_FILENAME = "rtqc_backup.json"
+
+logger = logging.getLogger("rtqc-backend")
+
 _lock = threading.Lock()
+
+
+def _read_config():
+    if not os.path.isfile(CONFIG_PATH):
+        return {}
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        logger.exception("Falha ao ler %s", CONFIG_PATH)
+        return {}
+
+
+def _write_config(cfg):
+    tmp = CONFIG_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CONFIG_PATH)
+
+
+def get_auto_backup_dir():
+    return _read_config().get("autoBackupDir") or None
+
+
+def set_auto_backup_dir(path):
+    cfg = _read_config()
+    if path:
+        cfg["autoBackupDir"] = path
+    else:
+        cfg.pop("autoBackupDir", None)
+    _write_config(cfg)
 
 
 def now_iso():
@@ -34,12 +75,20 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    changed = False
     try:
         with _lock:
             yield conn
             conn.commit()
+            changed = conn.total_changes > 0
     finally:
         conn.close()
+    # Fica fora do "with _lock" de propósito: libera o lock antes de fazer
+    # o trabalho (potencialmente mais lento) de gravar o backup automático,
+    # e evita reentrância no lock (write_auto_backup_now também usa get_conn
+    # para ler os dados a exportar).
+    if changed:
+        write_auto_backup_now()
 
 
 SCHEMA = """
@@ -572,3 +621,61 @@ def import_backup(data):
                 raise
     finally:
         conn.close()
+
+
+# ------------------------------------------------------------------
+# Backup automático de segurança
+# ------------------------------------------------------------------
+def _export_all():
+    return {
+        "version": 2,
+        "users": list_users(),
+        "equipments": list_equipments(),
+        "routines": list_routines(),
+        "results": list_results(),
+        "watchFolders": list_watch_folders(),
+    }
+
+
+def write_auto_backup_now():
+    """Grava (de forma atômica: escreve num .tmp e renomeia por cima) uma
+    cópia JSON completa e atual do banco na pasta configurada, se houver
+    uma configurada. Nunca levanta exceção — uma falha aqui não pode
+    derrubar a operação que a disparou."""
+    backup_dir = get_auto_backup_dir()
+    if not backup_dir:
+        return
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+        target = os.path.join(backup_dir, AUTO_BACKUP_FILENAME)
+        tmp = target + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_export_all(), f, ensure_ascii=False, indent=2, default=str)
+        os.replace(tmp, target)
+    except Exception:
+        logger.exception("Falha ao gravar backup automático em %s", backup_dir)
+
+
+def maybe_restore_from_auto_backup():
+    """Chamado na inicialização do backend. Se houver uma pasta de backup
+    automático configurada e um arquivo de backup presente nela, restaura
+    os dados a partir dele — mas SOMENTE quando o banco atual está vazio
+    (sem usuários nem equipamentos), para nunca sobrescrever dados atuais
+    válidos com uma cópia potencialmente mais antiga."""
+    backup_dir = get_auto_backup_dir()
+    if not backup_dir:
+        return
+    target = os.path.join(backup_dir, AUTO_BACKUP_FILENAME)
+    if not os.path.isfile(target):
+        logger.info("Backup automático configurado (%s), mas nenhum arquivo encontrado ainda.", target)
+        return
+    if len(list_users()) > 0 or len(list_equipments()) > 0:
+        logger.info("Banco já contém dados — restauração automática do backup ignorada.")
+        return
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        import_backup(data)
+        logger.info("Dados restaurados automaticamente a partir de %s", target)
+    except Exception:
+        logger.exception("Falha ao restaurar backup automático de %s", target)
