@@ -135,6 +135,12 @@ MODULES = {
             "open_field": _bool_cast,
             "bb_proximity_mm": _float_cast,
         },
+        # Winston-Lutz é feito por definição em VÁRIOS ângulos de gantry/
+        # colimador/mesa numa mesma execução, então em vez de um único par
+        # gantry/colimador (como nos outros testes de imagem), extraímos os
+        # dados de CADA imagem para alimentar o painel interativo por imagem
+        # do app (ver extract_wl_image_details em analysis.py).
+        "extract_wl_image_details": True,
         "exclude_prefixes": ["keyed_image_details"],
     },
     "field_analysis": {
@@ -249,6 +255,7 @@ MODULES = {
             "scaling_tolerance_mm": _float_cast,
             "thickness_tolerance_mm": _float_cast,
         },
+        "extract_dicom_angles": True,
         "exclude_prefixes": [
             "ctp404.hu_rois",
             "ctp486.rois",
@@ -263,6 +270,7 @@ MODULES = {
         "input_mode": "series",
         "param_map": {"hu_tolerance": "hu_tolerance"},
         "param_cast": {"hu_tolerance": _float_cast},
+        "extract_dicom_angles": True,
         "exclude_prefixes": [
             "hu_module.roi_settings",
             "hu_module.rois",
@@ -277,6 +285,7 @@ MODULES = {
         "input_mode": "series",
         "param_map": {},
         "param_cast": {},
+        "extract_dicom_angles": True,
         "exclude_prefixes": ["rois"],
     },
 }

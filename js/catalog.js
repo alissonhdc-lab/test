@@ -416,6 +416,8 @@
         { key: "thickness_tolerance_mm", label: "Tolerância de espessura de corte", type: "number", default: 0.2, unit: "mm", step: 0.1 },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "ctp404.hu_linearity_passed", label: "Linearidade de HU aprovada", unit: "", tolType: "bool" },
         { key: "ctp404.geometry_passed", label: "Precisão geométrica aprovada", unit: "", tolType: "bool" },
         { key: "ctp404.thickness_passed", label: "Espessura de corte aprovada", unit: "", tolType: "bool" },
@@ -439,6 +441,8 @@
       fileHint: "Todos os cortes DICOM da série CBCT (ou um único arquivo .zip).",
       params: [{ key: "hu_tolerance", label: "Tolerância de HU", type: "number", default: 40, unit: "HU", step: 1 }],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "uniformity_module.passed", label: "Uniformidade aprovada", unit: "", tolType: "bool" },
         { key: "hu_module.signal_to_noise", label: "Relação sinal-ruído (HU)", unit: "", tolType: "info" },
         { key: "hu_module.contrast_to_noise", label: "Relação contraste-ruído (HU)", unit: "", tolType: "info" },
@@ -459,6 +463,8 @@
       fileHint: "Todos os cortes DICOM da série (ou um único arquivo .zip).",
       params: [],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "phantom_roll", label: "Rotação (roll) do fantoma", unit: "graus", tolType: "info" },
         { key: "num_images", label: "Nº de cortes analisados", unit: "", tolType: "info" },
       ],

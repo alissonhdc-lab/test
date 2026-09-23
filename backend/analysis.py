@@ -90,6 +90,45 @@ def extract_dicom_angles(filepath):
     return out
 
 
+# Winston-Lutz não tem UM ângulo de gantry/colimador (o teste é justamente
+# feito em VÁRIOS ângulos), então em vez do mecanismo de ângulo único usado
+# nos outros testes, extraímos os dados POR IMAGEM a partir de
+# "keyed_image_details" do pylinac — cuja chave já codifica os 3 eixos no
+# formato "G<gantry>B<colimador>P<mesa>" (ex.: "G45.0B0.0P0.0"), com um
+# sufixo "_N" quando há imagens repetidas na mesma combinação de eixos.
+WL_KEY_ANGLES_RE = re.compile(r"^G(-?[\d.]+)B(-?[\d.]+)P(-?[\d.]+)")
+
+
+def extract_wl_image_details(results_dict):
+    """Constrói uma lista (ordenada por eixo e ângulo) com os dados de cada
+    imagem individual de um teste Winston-Lutz, para alimentar os gráficos
+    interativos por imagem (dispersão 2D e gráficos polares por eixo)."""
+    keyed = results_dict.get("keyed_image_details") or {}
+    axis_order = {"Reference": 0, "Gantry": 1, "Collimator": 2, "Couch": 3, "GB Combo": 4}
+    out = []
+    for key, rec in keyed.items():
+        match = WL_KEY_ANGLES_RE.match(key)
+        gantry = float(match.group(1)) if match else None
+        collimator = float(match.group(2)) if match else None
+        couch = float(match.group(3)) if match else None
+        cax2bb = rec.get("cax2bb_vector") or {}
+        out.append(
+            {
+                "key": key,
+                "axis": rec.get("variable_axis"),
+                "gantry": gantry,
+                "collimator": collimator,
+                "couch": couch,
+                "cax2bbDistanceMm": rec.get("cax2bb_distance"),
+                "cax2bbVectorXMm": cax2bb.get("x"),
+                "cax2bbVectorYMm": cax2bb.get("y"),
+                "cax2epidDistanceMm": rec.get("cax2epid_distance"),
+            }
+        )
+    out.sort(key=lambda r: (axis_order.get(r["axis"], 99), r["gantry"] or 0, r["collimator"] or 0, r["couch"] or 0))
+    return out
+
+
 def build_kwargs(config, params: dict, map_key="param_map", cast_key="param_cast"):
     param_map = config.get(map_key, {})
     param_cast = config.get(cast_key, {})
@@ -168,6 +207,9 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
 
         if config.get("extract_dicom_angles") and len(saved_paths) >= 1:
             flat.update(extract_dicom_angles(saved_paths[0]))
+
+        if config.get("extract_wl_image_details") and isinstance(results_dict, dict):
+            flat["_wl_image_details"] = extract_wl_image_details(results_dict)
 
         warnings_list = []
         if isinstance(results_dict, dict) and results_dict.get("warnings"):

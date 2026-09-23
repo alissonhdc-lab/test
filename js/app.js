@@ -7,7 +7,7 @@
 (function (global) {
   "use strict";
 
-  const { store, auth, ui, modal, chart, catalog, util } = global.RTQC;
+  const { store, auth, ui, modal, chart, catalog, util, wlChart } = global.RTQC;
   const appRoot = document.getElementById("app");
 
   let trendSelection = {}; // routineId -> [metricKey,...]
@@ -368,6 +368,13 @@
         const result = db.results.find((x) => x.id === el.dataset.id);
         const routine = db.routines.find((x) => x.id === result.routineId);
         modal.openModal({ title: "Detalhe do resultado", bodyHtml: ui.resultDetailHtml(routine, result, auth.currentSession()), wide: true });
+        const wlDetails = ui.winstonLutzImageDetails(routine, result);
+        if (wlDetails) {
+          const tolMetric = (routine.metrics || []).find((m) => m.key === "max_2d_cax_to_bb_mm");
+          wlChart.renderWinstonLutzPanel(document.getElementById("wl-image-panel"), wlDetails, {
+            toleranceMm: tolMetric && typeof tolMetric.tol === "number" ? tolMetric.tol : undefined,
+          });
+        }
         break;
       }
       case "approve-result":

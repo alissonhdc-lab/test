@@ -895,6 +895,12 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return "";
   }
 
+  function winstonLutzImageDetails(routine, result) {
+    if (routine.moduleId !== "winston_lutz") return null;
+    const details = result.rawMetrics && result.rawMetrics._wl_image_details;
+    return Array.isArray(details) && details.length > 0 ? details : null;
+  }
+
   function resultDetailHtml(routine, result, session) {
     const isAdmin = session.role === "admin";
     const metrics = routine.metrics || [];
@@ -904,6 +910,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         return `<tr><td>${esc(m.label)}</td><td>${formatMetricValue(m, v)} ${v !== undefined && v !== "" ? esc(m.unit || "") : ""}</td><td>${esc(toleranceHint(m) || "—")}</td></tr>`;
       })
       .join("");
+    const wlDetails = winstonLutzImageDetails(routine, result);
     return `
       <div class="result-detail">
         <p><b>Data:</b> ${fmtDate(result.date)} &nbsp; <b>Executado por:</b> ${esc(result.performedByName || "—")}</p>
@@ -911,6 +918,12 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <thead><tr><th>Métrica</th><th>Valor</th><th>Tolerância</th></tr></thead>
           <tbody>${rows || "<tr><td colspan=3>Sem métricas.</td></tr>"}</tbody>
         </table>
+        ${
+          wlDetails
+            ? `<h4 class="mt">Detalhe por imagem</h4>
+               <div id="wl-image-panel" class="panel-inset"></div>`
+            : ""
+        }
         ${result.notes ? `<p><b>Observações:</b> ${esc(result.notes)}</p>` : ""}
         ${
           result.analyzedWithPylinac
@@ -1152,6 +1165,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     fixDecimals,
     resultFormHtml,
     resultDetailHtml,
+    winstonLutzImageDetails,
     approvalFormHtml,
     renderUsers,
     userFormHtml,
