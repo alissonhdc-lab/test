@@ -146,6 +146,22 @@
         { key: "low_density_bb", label: "BB de baixa densidade", type: "checkbox", default: false },
         { key: "open_field", label: "Campo aberto (sem MLC definindo o campo)", type: "checkbox", default: false },
         { key: "bb_proximity_mm", label: "Proximidade esperada da BB", type: "number", default: 20, unit: "mm", step: 1 },
+        {
+          key: "field_edge_threshold_pct",
+          label: "Limiar da borda de campo (imagem individual)",
+          type: "number",
+          default: 50,
+          unit: "%",
+          step: 1,
+        },
+        {
+          key: "bb_threshold_pct",
+          label: "Limiar da borda da BB (imagem individual)",
+          type: "number",
+          default: 50,
+          unit: "%",
+          step: 1,
+        },
       ],
       metrics: [
         { key: "max_2d_cax_to_bb_mm", label: "Erro 2D máx. CAX→BB", unit: "mm", tolType: "max", tol: 1.0 },

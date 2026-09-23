@@ -10,6 +10,7 @@ import re
 import traceback
 from pathlib import Path
 
+import numpy as np
 import pydicom
 
 from modules_config import MODULES
@@ -148,22 +149,31 @@ def rename_files_by_series_description(paths):
 WL_AXIS_ORDER = {"Reference": 0, "Gantry": 1, "Collimator": 2, "Couch": 3, "GB Combo": 4}
 
 
-def _draw_wl_field_edge(ax, wl_image):
+def _threshold_from_pct(arr, pct, lo_hi_percentiles=(5, 99.9)):
+    """Converte um limiar em % (0 = nível do fundo, 100 = nível do platô)
+    num valor de intensidade real, usando os percentis do array como
+    referência de fundo/platô (mais robusto que usar o mínimo/máximo
+    absolutos, sensíveis a ruído/artefatos isolados)."""
+    lo, hi = np.percentile(arr, lo_hi_percentiles)
+    frac = max(0.0, min(100.0, float(pct))) / 100.0
+    return lo + frac * (hi - lo)
+
+
+def _draw_wl_field_edge(ax, wl_image, threshold_pct=50.0):
     """Desenha o contorno do campo segmentado por cima da imagem já
     plotada. O pylinac NÃO desenha isso por padrão em WLBaseImage.plot()
     (só marca o centro do campo, não a borda) — aqui usamos a definição
-    padrão de borda de campo em dosimetria (o contorno no limiar de 50%
-    entre o fundo e o platô do campo), a mesma lógica de limiarização que
-    o próprio pylinac usa internamente para localizar o centro do campo
-    em WinstonLutz2D.find_field_centroids()."""
-    import numpy as np
+    padrão de borda de campo em dosimetria (por padrão, o contorno no
+    limiar de 50% entre o fundo e o platô do campo — mesma referência que
+    o pylinac usa internamente para localizar o centro do campo em
+    WinstonLutz2D.find_field_centroids() — mas configurável pela rotina,
+    já que o contraste real varia por equipamento/técnica de imagem)."""
     from scipy import ndimage as ndi
     from skimage import measure
 
     try:
         arr = wl_image.array
-        lo, hi = np.percentile(arr, [5, 99.9])
-        threshold = (hi - lo) / 2 + lo
+        threshold = _threshold_from_pct(arr, threshold_pct, (5, 99.9))
         filled = ndi.binary_fill_holes(arr >= threshold)
         for contour in measure.find_contours(filled.astype(float), 0.5):
             ax.plot(contour[:, 1], contour[:, 0], color="yellow", linewidth=1.3)
@@ -171,17 +181,62 @@ def _draw_wl_field_edge(ax, wl_image):
         logger.exception("Falha ao desenhar a borda de campo segmentada")
 
 
-def render_wl_images(instance, figsize=(5, 5), dpi=90):
+def _draw_wl_bb_edge(ax, wl_image, threshold_pct=50.0, low_density_bb=False, bb_diameter_mm=5.0):
+    """Desenha o contorno segmentado de cada BB detectada, numa janela
+    local ao redor da posição já encontrada pelo pylinac (não refaz a
+    detecção em si — só segmenta a borda da BB para mostrar visualmente,
+    com um limiar configurável pela rotina, análogo ao da borda de
+    campo). BB normal (não 'low density') aparece mais escura que o fundo
+    do campo ao redor; BB de baixa densidade aparece mais clara — mesma
+    convenção que o parâmetro 'low_density_bb' já usa na análise real."""
+    from scipy import ndimage as ndi
+    from skimage import measure
+
+    try:
+        arr = wl_image.array
+        dpmm = wl_image.dpmm
+        margin_px = max(4, int(bb_diameter_mm * dpmm * 1.5))
+        for match in wl_image.arrangement_matches.values():
+            cx, cy = match.bb.x, match.bb.y
+            x0, x1 = max(0, int(cx - margin_px)), min(arr.shape[1], int(cx + margin_px))
+            y0, y1 = max(0, int(cy - margin_px)), min(arr.shape[0], int(cy + margin_px))
+            if x1 - x0 < 3 or y1 - y0 < 3:
+                continue
+            crop = arr[y0:y1, x0:x1]
+            threshold = _threshold_from_pct(crop, threshold_pct, (1, 99))
+            mask = crop >= threshold if low_density_bb else crop <= threshold
+            filled = ndi.binary_fill_holes(mask)
+            for contour in measure.find_contours(filled.astype(float), 0.5):
+                ax.plot(contour[:, 1] + x0, contour[:, 0] + y0, color="magenta", linewidth=1.2)
+    except Exception:
+        logger.exception("Falha ao desenhar a borda segmentada da BB")
+
+
+def render_wl_images(instance, params_dict=None, figsize=(5, 5), dpi=90):
     """Para cada imagem do Winston-Lutz, monta um registro com eixo/ângulos,
     erro CAX→BB/EPID, e uma miniatura PNG (base64) da própria imagem com a
-    borda de campo segmentada e os centros da BB, do campo e do EPID
-    marcados (mesma anotação que o pylinac desenha em seu relatório, via
-    WLBaseImage.plot(), mais a borda de campo — ver _draw_wl_field_edge)."""
+    borda de campo segmentada, a borda da BB segmentada, e os centros da
+    BB, do campo e do EPID marcados (mesma anotação que o pylinac desenha
+    em seu relatório, via WLBaseImage.plot(), mais as duas bordas
+    segmentadas — ver _draw_wl_field_edge / _draw_wl_bb_edge). Os limiares
+    de segmentação e o tamanho da BB vêm dos parâmetros da rotina
+    (field_edge_threshold_pct, bb_threshold_pct, bb_size_mm,
+    low_density_bb), com padrões sensatos quando não informados."""
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
+    params_dict = params_dict or {}
+    field_threshold_pct = params_dict.get("field_edge_threshold_pct")
+    field_threshold_pct = 50.0 if field_threshold_pct in (None, "") else float(field_threshold_pct)
+    bb_threshold_pct = params_dict.get("bb_threshold_pct")
+    bb_threshold_pct = 50.0 if bb_threshold_pct in (None, "") else float(bb_threshold_pct)
+    bb_size_mm = params_dict.get("bb_size_mm")
+    bb_size_mm = 5.0 if bb_size_mm in (None, "") else float(bb_size_mm)
+    low_density_bb = bool(params_dict.get("low_density_bb"))
+
     legend_handles = [
         Line2D([0], [0], color="yellow", linewidth=1.3, label="Borda de campo"),
+        Line2D([0], [0], color="magenta", linewidth=1.2, label="Borda da BB"),
         Line2D([0], [0], marker="s", linestyle="None", markerfacecolor="green", markeredgecolor="green", markersize=7, label="Centro do campo"),
         Line2D([0], [0], marker="o", linestyle="None", markerfacecolor="cyan", markeredgecolor="cyan", markersize=8, label="BB detectada"),
         Line2D([0], [0], color="b", linewidth=1.3, label="Centro do EPID"),
@@ -194,8 +249,9 @@ def render_wl_images(instance, figsize=(5, 5), dpi=90):
         try:
             fig, ax = plt.subplots(figsize=figsize)
             wl_image.plot(ax=ax, show=False, zoom=True, legend=False)
-            _draw_wl_field_edge(ax, wl_image)
-            ax.legend(handles=legend_handles, loc="upper right", fontsize=7)
+            _draw_wl_field_edge(ax, wl_image, field_threshold_pct)
+            _draw_wl_bb_edge(ax, wl_image, bb_threshold_pct, low_density_bb, bb_size_mm)
+            ax.legend(handles=legend_handles, loc="upper right", fontsize=6.5)
             buf = io.BytesIO()
             fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
             buf.seek(0)
@@ -345,7 +401,7 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
             flat.update(extract_dicom_angles(saved_paths[0]))
 
         if config.get("extract_wl_image_details"):
-            flat["_wl_image_details"] = render_wl_images(instance)
+            flat["_wl_image_details"] = render_wl_images(instance, params_dict)
 
         if config.get("render_analyzed_image"):
             flat["_analyzed_image_png_b64"] = render_analyzed_image_png_b64(instance)

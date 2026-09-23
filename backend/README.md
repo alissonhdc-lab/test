@@ -164,13 +164,22 @@ para upload manual quanto para a pasta observada.
 Além dos gráficos por imagem (dispersão do erro e gráficos polares por
 eixo — ver acima), o detalhe do resultado mostra uma galeria com **cada
 imagem individual** do conjunto, já anotada com: a borda do campo
-segmentada (contorno amarelo, no limiar de 50% entre fundo e campo — a
-definição padrão de borda de campo em dosimetria, já que o pylinac não
-desenha isso por padrão), o centro do campo, a BB detectada e o centro do
-EPID. Como isso grava uma miniatura PNG por imagem, um resultado de
-Winston-Lutz com muitas imagens fica sensivelmente maior no banco e no
-backup automático do que os outros testes — ainda assim, tudo local em
-SQLite, sem limite prático de tamanho para isso.
+segmentada (contorno amarelo — o pylinac não desenha isso por padrão), a
+borda da BB segmentada (contorno magenta), o centro do campo, a BB
+detectada e o centro do EPID. Como isso grava uma miniatura PNG por
+imagem, um resultado de Winston-Lutz com muitas imagens fica
+sensivelmente maior no banco e no backup automático do que os outros
+testes — ainda assim, tudo local em SQLite, sem limite prático de
+tamanho para isso.
+
+As duas bordas são desenhadas com a definição padrão de borda em
+dosimetria (um limiar entre o nível de fundo e o platô), mas o **limiar
+exato é configurável ao criar/editar a rotina** — campos "Limiar da
+borda de campo" e "Limiar da borda da BB" (0–100%, padrão 50%): valores
+menores tornam a segmentação mais permissiva (pega mais da penumbra),
+valores maiores mais restritiva (só o núcleo mais bem definido). Isso
+afeta só a visualização na galeria, não os números da análise em si
+(que continuam sendo os do algoritmo do próprio pylinac).
 
 ## Pasta observada — análise 100% automática
 
