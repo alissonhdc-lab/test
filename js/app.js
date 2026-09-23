@@ -782,7 +782,9 @@
     statusEl.className = "pylinac-status muted small";
 
     try {
-      const resp = await fetch(`${backendUrl}/api/analyze`, { method: "POST", body: formData });
+      const session = auth.currentSession();
+      const headers = session && session.token ? { Authorization: `Bearer ${session.token}` } : {};
+      const resp = await fetch(`${backendUrl}/api/analyze`, { method: "POST", headers, body: formData });
       const data = await resp.json();
       if (!resp.ok || !data.success) {
         throw new Error(data.detail || "Falha na análise.");

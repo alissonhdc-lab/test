@@ -100,6 +100,7 @@ MODULES = {
     "starshot": {
         "cls": pylinac.Starshot,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {
             "tolerance_mm": "tolerance",
             "radius": "radius",
@@ -139,6 +140,7 @@ MODULES = {
     "field_analysis": {
         "cls": pylinac.FieldAnalysis,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {
             "protocol": "protocol",
             "invert": "invert",
@@ -161,18 +163,21 @@ MODULES = {
     "vmat_drgs": {
         "cls": pylinac.DRGS,
         "input_mode": "pair",
+        "extract_dicom_angles": True,
         "param_map": {"tolerance_percent": "tolerance"},
         "param_cast": {"tolerance_percent": _float_cast},
     },
     "vmat_drmlc": {
         "cls": pylinac.DRMLC,
         "input_mode": "pair",
+        "extract_dicom_angles": True,
         "param_map": {"tolerance_percent": "tolerance"},
         "param_cast": {"tolerance_percent": _float_cast},
     },
     "planar_leeds": {
         "cls": pylinac.LeedsTOR,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {"invert": "invert", "ssd": "ssd"},
         "param_cast": {"invert": _bool_cast},
         "exclude_prefixes": ["low_contrast_rois", "mtf_lp_mm"],
@@ -180,6 +185,7 @@ MODULES = {
     "planar_qc3": {
         "cls": pylinac.StandardImagingQC3,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {"invert": "invert", "ssd": "ssd"},
         "param_cast": {"invert": _bool_cast},
         "exclude_prefixes": ["low_contrast_rois", "mtf_lp_mm"],
@@ -187,6 +193,7 @@ MODULES = {
     "planar_lasvegas": {
         "cls": pylinac.LasVegas,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {"invert": "invert", "ssd": "ssd"},
         "param_cast": {"invert": _bool_cast},
         "exclude_prefixes": ["low_contrast_rois", "mtf_lp_mm"],
@@ -194,6 +201,7 @@ MODULES = {
     "planar_doselab_kv": {
         "cls": pylinac.DoselabMC2kV,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {"invert": "invert", "ssd": "ssd"},
         "param_cast": {"invert": _bool_cast},
         "exclude_prefixes": ["low_contrast_rois", "mtf_lp_mm"],
@@ -201,6 +209,7 @@ MODULES = {
     "planar_doselab_mv": {
         "cls": pylinac.DoselabMC2MV,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {"invert": "invert", "ssd": "ssd"},
         "param_cast": {"invert": _bool_cast},
         "exclude_prefixes": ["low_contrast_rois", "mtf_lp_mm"],
@@ -208,6 +217,7 @@ MODULES = {
     "planar_snc_kv": {
         "cls": pylinac.SNCkV,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {"invert": "invert", "ssd": "ssd"},
         "param_cast": {"invert": _bool_cast},
         "exclude_prefixes": ["low_contrast_rois", "mtf_lp_mm"],
@@ -215,6 +225,7 @@ MODULES = {
     "planar_snc_mv": {
         "cls": pylinac.SNCMV,
         "input_mode": "single",
+        "extract_dicom_angles": True,
         "param_map": {"invert": "invert", "ssd": "ssd"},
         "param_cast": {"invert": _bool_cast},
         "exclude_prefixes": ["low_contrast_rois", "mtf_lp_mm"],

@@ -116,8 +116,10 @@
         { key: "sid_mm", label: "SID — só p/ imagens não-DICOM (filme/TIFF)", type: "number", default: "", unit: "mm", step: 1 },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "circle_diameter_mm", label: "Diâmetro do wobble", unit: "mm", tolType: "max", tol: 1.0 },
-        { key: "passed", label: "Aprovado (pylinac)", unit: "", tolType: "bool" },
+        { key: "passed", label: "Aprovado (pylinac)", unit: "", tolType: "bool", plottable: false },
       ],
     },
     {
@@ -178,6 +180,8 @@
         { key: "is_FFF", label: "Feixe sem filtro (FFF)", type: "checkbox", default: false },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "protocol_results.flatness_horizontal", label: "Planeza horizontal", unit: "%", tolType: "max", tol: 3.0 },
         { key: "protocol_results.flatness_vertical", label: "Planeza vertical", unit: "%", tolType: "max", tol: 3.0 },
         { key: "protocol_results.symmetry_horizontal", label: "Simetria horizontal", unit: "%", tolType: "max", tol: 2.0 },
@@ -199,9 +203,11 @@
       fileLabels: ["Campo aberto (Open)", "Campo DRGS"],
       params: [{ key: "tolerance_percent", label: "Tolerância", type: "number", default: 1.5, unit: "%", step: 0.1 }],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "max_deviation_percent", label: "Desvio máximo", unit: "%", tolType: "max", tol: 1.5 },
         { key: "abs_mean_deviation", label: "Desvio médio absoluto", unit: "%", tolType: "info" },
-        { key: "passed", label: "Aprovado (pylinac)", unit: "", tolType: "bool" },
+        { key: "passed", label: "Aprovado (pylinac)", unit: "", tolType: "bool", plottable: false },
       ],
     },
     {
@@ -217,9 +223,11 @@
       fileLabels: ["Campo aberto (Open)", "Campo DRMLC"],
       params: [{ key: "tolerance_percent", label: "Tolerância", type: "number", default: 1.5, unit: "%", step: 0.1 }],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "max_deviation_percent", label: "Desvio máximo", unit: "%", tolType: "max", tol: 1.5 },
         { key: "abs_mean_deviation", label: "Desvio médio absoluto", unit: "%", tolType: "info" },
-        { key: "passed", label: "Aprovado (pylinac)", unit: "", tolType: "bool" },
+        { key: "passed", label: "Aprovado (pylinac)", unit: "", tolType: "bool", plottable: false },
       ],
     },
 
@@ -240,6 +248,8 @@
         { key: "ssd", label: "SSD (mm ou 'auto')", type: "text", default: "auto" },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "median_contrast", label: "Contraste mediano", unit: "", tolType: "info" },
         { key: "median_cnr", label: "CNR mediano", unit: "", tolType: "min", tol: 3 },
         { key: "num_contrast_rois_seen", label: "ROIs de contraste detectados", unit: "", tolType: "info" },
@@ -262,6 +272,8 @@
         { key: "ssd", label: "SSD (mm ou 'auto')", type: "text", default: "auto" },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "median_contrast", label: "Contraste mediano", unit: "", tolType: "info" },
         { key: "median_cnr", label: "CNR mediano", unit: "", tolType: "min", tol: 3 },
         { key: "num_contrast_rois_seen", label: "ROIs de contraste detectados", unit: "", tolType: "info" },
@@ -284,6 +296,8 @@
         { key: "ssd", label: "SSD (mm ou 'auto')", type: "text", default: "auto" },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "median_contrast", label: "Contraste mediano", unit: "", tolType: "info" },
         { key: "median_cnr", label: "CNR mediano", unit: "", tolType: "min", tol: 3 },
         { key: "num_contrast_rois_seen", label: "ROIs de contraste detectados", unit: "", tolType: "info" },
@@ -306,6 +320,8 @@
         { key: "ssd", label: "SSD (mm ou 'auto')", type: "text", default: "auto" },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "median_contrast", label: "Contraste mediano", unit: "", tolType: "info" },
         { key: "median_cnr", label: "CNR mediano", unit: "", tolType: "min", tol: 3 },
         { key: "percent_integral_uniformity", label: "Uniformidade integral", unit: "%", tolType: "min", tol: 80 },
@@ -327,6 +343,8 @@
         { key: "ssd", label: "SSD (mm ou 'auto')", type: "text", default: "auto" },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "median_contrast", label: "Contraste mediano", unit: "", tolType: "info" },
         { key: "median_cnr", label: "CNR mediano", unit: "", tolType: "min", tol: 3 },
         { key: "percent_integral_uniformity", label: "Uniformidade integral", unit: "%", tolType: "min", tol: 80 },
@@ -348,6 +366,8 @@
         { key: "ssd", label: "SSD (mm ou 'auto')", type: "text", default: "auto" },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "median_contrast", label: "Contraste mediano", unit: "", tolType: "info" },
         { key: "median_cnr", label: "CNR mediano", unit: "", tolType: "min", tol: 3 },
         { key: "percent_integral_uniformity", label: "Uniformidade integral", unit: "%", tolType: "min", tol: 80 },
@@ -369,6 +389,8 @@
         { key: "ssd", label: "SSD (mm ou 'auto')", type: "text", default: "auto" },
       ],
       metrics: [
+        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
+        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "median_contrast", label: "Contraste mediano", unit: "", tolType: "info" },
         { key: "median_cnr", label: "CNR mediano", unit: "", tolType: "min", tol: 3 },
         { key: "percent_integral_uniformity", label: "Uniformidade integral", unit: "%", tolType: "min", tol: 80 },
