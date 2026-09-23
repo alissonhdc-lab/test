@@ -157,6 +157,11 @@ Detalhes de funcionamento:
   forma confiável.
 - Um arquivo só é processado depois de ficar com o mesmo tamanho em duas
   varreduras seguidas (evita processar um arquivo ainda sendo copiado).
+- Testes que precisam de **várias imagens de um mesmo exame** (Winston-Lutz,
+  VMAT DRGS/DRMLC) só são processados quando **todos** os arquivos hoje na
+  pasta estiverem estáveis — viram **um único resultado**, não um por
+  arquivo. Se a exportação ainda estiver trazendo mais imagens, o app só
+  espera terminar; não analisa um lote incompleto.
 - Depois de processado, o arquivo é movido para uma subpasta
   `processado_cq` (ou `falha_cq`, se a análise der erro) dentro da própria
   pasta observada, para não ser analisado de novo.
