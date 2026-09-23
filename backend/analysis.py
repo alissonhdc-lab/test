@@ -137,40 +137,93 @@ def rename_files_by_series_description(paths):
 
 # Winston-Lutz não tem UM ângulo de gantry/colimador (o teste é justamente
 # feito em VÁRIOS ângulos), então em vez do mecanismo de ângulo único usado
-# nos outros testes, extraímos os dados POR IMAGEM a partir de
-# "keyed_image_details" do pylinac — cuja chave já codifica os 3 eixos no
-# formato "G<gantry>B<colimador>P<mesa>" (ex.: "G45.0B0.0P0.0"), com um
-# sufixo "_N" quando há imagens repetidas na mesma combinação de eixos.
-WL_KEY_ANGLES_RE = re.compile(r"^G(-?[\d.]+)B(-?[\d.]+)P(-?[\d.]+)")
+# nos outros testes, construímos uma lista com os dados de CADA imagem
+# individual (eixo, ângulos, erro CAX→BB/EPID e uma miniatura já anotada
+# com a borda de campo segmentada e os centros da BB/campo/EPID) — lida
+# direto de cada objeto de imagem do pylinac (instance.images), não do
+# results_data() serializado, porque as mesmas propriedades usadas aqui
+# (cax2bb_distance, variable_axis, etc.) são as que o método .plot() de
+# cada imagem também usa para desenhar as marcações — não corremos o
+# risco de os dois ficarem fora de sincronia.
+WL_AXIS_ORDER = {"Reference": 0, "Gantry": 1, "Collimator": 2, "Couch": 3, "GB Combo": 4}
 
 
-def extract_wl_image_details(results_dict):
-    """Constrói uma lista (ordenada por eixo e ângulo) com os dados de cada
-    imagem individual de um teste Winston-Lutz, para alimentar os gráficos
-    interativos por imagem (dispersão 2D e gráficos polares por eixo)."""
-    keyed = results_dict.get("keyed_image_details") or {}
-    axis_order = {"Reference": 0, "Gantry": 1, "Collimator": 2, "Couch": 3, "GB Combo": 4}
+def _draw_wl_field_edge(ax, wl_image):
+    """Desenha o contorno do campo segmentado por cima da imagem já
+    plotada. O pylinac NÃO desenha isso por padrão em WLBaseImage.plot()
+    (só marca o centro do campo, não a borda) — aqui usamos a definição
+    padrão de borda de campo em dosimetria (o contorno no limiar de 50%
+    entre o fundo e o platô do campo), a mesma lógica de limiarização que
+    o próprio pylinac usa internamente para localizar o centro do campo
+    em WinstonLutz2D.find_field_centroids()."""
+    import numpy as np
+    from scipy import ndimage as ndi
+    from skimage import measure
+
+    try:
+        arr = wl_image.array
+        lo, hi = np.percentile(arr, [5, 99.9])
+        threshold = (hi - lo) / 2 + lo
+        filled = ndi.binary_fill_holes(arr >= threshold)
+        for contour in measure.find_contours(filled.astype(float), 0.5):
+            ax.plot(contour[:, 1], contour[:, 0], color="yellow", linewidth=1.3)
+    except Exception:
+        logger.exception("Falha ao desenhar a borda de campo segmentada")
+
+
+def render_wl_images(instance, figsize=(5, 5), dpi=90):
+    """Para cada imagem do Winston-Lutz, monta um registro com eixo/ângulos,
+    erro CAX→BB/EPID, e uma miniatura PNG (base64) da própria imagem com a
+    borda de campo segmentada e os centros da BB, do campo e do EPID
+    marcados (mesma anotação que o pylinac desenha em seu relatório, via
+    WLBaseImage.plot(), mais a borda de campo — ver _draw_wl_field_edge)."""
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    legend_handles = [
+        Line2D([0], [0], color="yellow", linewidth=1.3, label="Borda de campo"),
+        Line2D([0], [0], marker="s", linestyle="None", markerfacecolor="green", markeredgecolor="green", markersize=7, label="Centro do campo"),
+        Line2D([0], [0], marker="o", linestyle="None", markerfacecolor="cyan", markeredgecolor="cyan", markersize=8, label="BB detectada"),
+        Line2D([0], [0], color="b", linewidth=1.3, label="Centro do EPID"),
+    ]
+
     out = []
-    for key, rec in keyed.items():
-        match = WL_KEY_ANGLES_RE.match(key)
-        gantry = float(match.group(1)) if match else None
-        collimator = float(match.group(2)) if match else None
-        couch = float(match.group(3)) if match else None
-        cax2bb = rec.get("cax2bb_vector") or {}
+    for wl_image in instance.images:
+        fig = None
+        image_png_b64 = None
+        try:
+            fig, ax = plt.subplots(figsize=figsize)
+            wl_image.plot(ax=ax, show=False, zoom=True, legend=False)
+            _draw_wl_field_edge(ax, wl_image)
+            ax.legend(handles=legend_handles, loc="upper right", fontsize=7)
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+            buf.seek(0)
+            image_png_b64 = base64.b64encode(buf.read()).decode("ascii")
+        except Exception:
+            logger.exception("Falha ao renderizar uma imagem individual do Winston-Lutz")
+        finally:
+            if fig is not None:
+                plt.close(fig)
+
+        axis_value = getattr(wl_image.variable_axis, "value", wl_image.variable_axis)
+        cax2bb = wl_image.cax2bb_vector
         out.append(
             {
-                "key": key,
-                "axis": rec.get("variable_axis"),
-                "gantry": gantry,
-                "collimator": collimator,
-                "couch": couch,
-                "cax2bbDistanceMm": rec.get("cax2bb_distance"),
-                "cax2bbVectorXMm": cax2bb.get("x"),
-                "cax2bbVectorYMm": cax2bb.get("y"),
-                "cax2epidDistanceMm": rec.get("cax2epid_distance"),
+                "axis": axis_value,
+                "gantry": wl_image.gantry_angle,
+                "collimator": wl_image.collimator_angle,
+                "couch": wl_image.couch_angle,
+                "cax2bbDistanceMm": wl_image.cax2bb_distance,
+                "cax2bbVectorXMm": cax2bb.x,
+                "cax2bbVectorYMm": cax2bb.y,
+                "cax2epidDistanceMm": wl_image.cax2epid_distance,
+                "imagePngB64": image_png_b64,
             }
         )
-    out.sort(key=lambda r: (axis_order.get(r["axis"], 99), r["gantry"] or 0, r["collimator"] or 0, r["couch"] or 0))
+    out.sort(
+        key=lambda r: (WL_AXIS_ORDER.get(r["axis"], 99), r["gantry"] or 0, r["collimator"] or 0, r["couch"] or 0)
+    )
     return out
 
 
@@ -291,8 +344,8 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
         if config.get("extract_dicom_angles") and len(saved_paths) >= 1:
             flat.update(extract_dicom_angles(saved_paths[0]))
 
-        if config.get("extract_wl_image_details") and isinstance(results_dict, dict):
-            flat["_wl_image_details"] = extract_wl_image_details(results_dict)
+        if config.get("extract_wl_image_details"):
+            flat["_wl_image_details"] = render_wl_images(instance)
 
         if config.get("render_analyzed_image"):
             flat["_analyzed_image_png_b64"] = render_analyzed_image_png_b64(instance)

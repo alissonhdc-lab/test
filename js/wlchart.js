@@ -216,6 +216,37 @@
   }
 
   // ------------------------------------------------------------------
+  // Galeria: cada imagem individual, já anotada pelo pylinac com a borda
+  // de campo segmentada e os centros da BB, do campo e do EPID.
+  // ------------------------------------------------------------------
+  function renderImageGallery(container, points) {
+    const withImages = points.filter((p) => p.imagePngB64);
+    if (withImages.length === 0) return;
+
+    const title = document.createElement("div");
+    title.className = "wl-polar-title wl-gallery-title";
+    title.textContent = `Imagens individuais (${withImages.length}) — borda de campo, BB, campo e EPID marcados`;
+    container.appendChild(title);
+
+    const grid = document.createElement("div");
+    grid.className = "wl-image-grid";
+    withImages.forEach((p) => {
+      const angleField = POLAR_ANGLE_FIELD[p.axis];
+      const angleTxt = angleField && typeof p[angleField] === "number" ? `${fmt(p[angleField], 0)}°` : axisAngleSuffix(p).replace(/[()°]/g, "").trim();
+      const card = document.createElement("div");
+      card.className = "wl-image-card";
+      card.innerHTML = `
+        <img src="data:image/png;base64,${p.imagePngB64}" alt="${axisLabel(p.axis)} ${angleTxt} — erro CAX→BB ${fmt(p.cax2bbDistanceMm, 2)} mm" loading="lazy" />
+        <div class="wl-image-card-label">
+          <span class="wl-axis-dot" style="background:${axisColor(p.axis)}"></span>
+          ${axisLabel(p.axis)} ${angleTxt} — ${fmt(p.cax2bbDistanceMm, 2)} mm
+        </div>`;
+      grid.appendChild(card);
+    });
+    container.appendChild(grid);
+  }
+
+  // ------------------------------------------------------------------
   // Painel completo
   // ------------------------------------------------------------------
   function renderWinstonLutzPanel(container, imageDetails, opts) {
@@ -272,6 +303,7 @@
       container.appendChild(tolNote);
     }
 
+    renderImageGallery(container, points);
     renderTable(container, points);
   }
 

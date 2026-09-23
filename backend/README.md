@@ -159,6 +159,19 @@ pylinac normalmente usa — ele passa a ler esses ângulos direto do nome do
 arquivo (formato `...Gantry<nº>Coll<nº>Couch<nº>...`). Isso vale tanto
 para upload manual quanto para a pasta observada.
 
+### Winston-Lutz: imagem de cada exposição
+
+Além dos gráficos por imagem (dispersão do erro e gráficos polares por
+eixo — ver acima), o detalhe do resultado mostra uma galeria com **cada
+imagem individual** do conjunto, já anotada com: a borda do campo
+segmentada (contorno amarelo, no limiar de 50% entre fundo e campo — a
+definição padrão de borda de campo em dosimetria, já que o pylinac não
+desenha isso por padrão), o centro do campo, a BB detectada e o centro do
+EPID. Como isso grava uma miniatura PNG por imagem, um resultado de
+Winston-Lutz com muitas imagens fica sensivelmente maior no banco e no
+backup automático do que os outros testes — ainda assim, tudo local em
+SQLite, sem limite prático de tamanho para isso.
+
 ## Pasta observada — análise 100% automática
 
 Para os testes com upload de arquivo, cada rotina pode ter uma ou mais

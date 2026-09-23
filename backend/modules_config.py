@@ -149,8 +149,10 @@ MODULES = {
         # Winston-Lutz é feito por definição em VÁRIOS ângulos de gantry/
         # colimador/mesa numa mesma execução, então em vez de um único par
         # gantry/colimador (como nos outros testes de imagem), extraímos os
-        # dados de CADA imagem para alimentar o painel interativo por imagem
-        # do app (ver extract_wl_image_details em analysis.py).
+        # dados de CADA imagem — incluindo uma miniatura anotada com a
+        # borda de campo segmentada e os centros da BB/campo/EPID — para
+        # alimentar o painel interativo por imagem do app (ver
+        # render_wl_images em analysis.py).
         "extract_wl_image_details": True,
         # Nesta máquina, gantry/colimador/mesa não vêm confiáveis nas tags
         # DICOM — antes de rodar o pylinac, renomeamos cada arquivo para o

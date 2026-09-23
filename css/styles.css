@@ -413,6 +413,11 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 .wl-polar-title { font-size: 12.5px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
 .wl-axis-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .wl-table { margin-top: 16px; }
+.wl-gallery-title { text-align: left; margin-top: 20px; margin-bottom: 8px; }
+.wl-image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.wl-image-card { background: var(--bg-soft, rgba(148,163,184,0.06)); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.wl-image-card img { display: block; width: 100%; height: auto; }
+.wl-image-card-label { padding: 6px 8px; font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
 
 /* -------------------- Filtros (chips) -------------------- */
 .filters-wrap { display: flex; flex-direction: column; gap: 14px; }
