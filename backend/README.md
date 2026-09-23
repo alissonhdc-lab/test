@@ -130,6 +130,17 @@ do resultado): TG-51/TRS-398, Winston-Lutz multi-alvo, DLG, ACR CT/MRI e
 análise de log de trajetória. O app explica isso na tela de cada um desses
 testes.
 
+### Winston-Lutz: ângulos lidos pelo nome do arquivo
+
+Antes de rodar o pylinac, o backend renomeia cada imagem enviada para o
+nome derivado da tag DICOM `SeriesDescription` (a parte depois de `" + "`,
+quando presente — mesma convenção usada pelo serviço) e roda o
+`WinstonLutz` com `use_filenames=True`. Isso é necessário porque nesta
+máquina o gantry/colimador/mesa não vêm confiáveis nas tags DICOM que o
+pylinac normalmente usa — ele passa a ler esses ângulos direto do nome do
+arquivo (formato `...Gantry<nº>Coll<nº>Couch<nº>...`). Isso vale tanto
+para upload manual quanto para a pasta observada.
+
 ## Pasta observada — análise 100% automática
 
 Para os testes com upload de arquivo, cada rotina pode ter uma ou mais

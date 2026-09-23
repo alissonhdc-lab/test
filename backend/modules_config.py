@@ -141,6 +141,13 @@ MODULES = {
         # dados de CADA imagem para alimentar o painel interativo por imagem
         # do app (ver extract_wl_image_details em analysis.py).
         "extract_wl_image_details": True,
+        # Nesta máquina, gantry/colimador/mesa não vêm confiáveis nas tags
+        # DICOM — antes de rodar o pylinac, renomeamos cada arquivo para o
+        # nome derivado do SeriesDescription (0008,103E) e construímos o
+        # WinstonLutz com use_filenames=True, para que ele leia os ângulos
+        # do nome do arquivo em vez do cabeçalho DICOM (ver
+        # rename_files_by_series_description em analysis.py).
+        "rename_files_by_series_description": True,
         "exclude_prefixes": ["keyed_image_details"],
     },
     "field_analysis": {

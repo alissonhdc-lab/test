@@ -6,6 +6,7 @@ HTTP /api/analyze e o observador de pastas (watcher.py).
 import logging
 import re
 import traceback
+from pathlib import Path
 
 import pydicom
 
@@ -88,6 +89,48 @@ def extract_dicom_angles(filepath):
     except Exception:
         pass
     return out
+
+
+def rename_files_by_series_description(paths):
+    """Renomeia cada arquivo (no mesmo diretório) para o nome derivado da tag
+    DICOM SeriesDescription (0008,103E): a parte após " + ", quando presente,
+    senão a descrição inteira (mesma convenção usada no fluxo local do
+    físico). Isso é necessário para o Winston-Lutz porque, nesta máquina, os
+    ângulos de gantry/colimador/mesa não vêm confiáveis nas tags DICOM
+    correspondentes — o pylinac, com ``use_filenames=True``, lê esses
+    ângulos direto do NOME do arquivo (padrão "...Gantry<nº>Coll<nº>...").
+
+    Arquivos sem SeriesDescription não são renomeados (ficam como estavam).
+    Em caso de nomes duplicados, adiciona um sufixo numérico em vez de pular
+    o arquivo, para nunca perder silenciosamente uma imagem da análise."""
+    renamed = []
+    for raw_path in paths:
+        path = Path(raw_path)
+        series_desc = ""
+        try:
+            ds = pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
+            elem = ds.get(FIELD_NAME_TAG, None)
+            series_desc = str(elem.value) if elem else ""
+        except Exception:
+            pass
+
+        if not series_desc:
+            renamed.append(path)
+            continue
+
+        new_stem = series_desc.split(" + ", 1)[1] if " + " in series_desc else series_desc
+        new_stem = re.sub(r'[\\/:*?"<>|]', "_", new_stem).strip(" .") or path.stem
+        suffix = path.suffix or ".dcm"
+        candidate = path.with_name(f"{new_stem}{suffix}")
+        counter = 1
+        while candidate.exists() and candidate != path:
+            candidate = path.with_name(f"{new_stem}_{counter}{suffix}")
+            counter += 1
+
+        if candidate != path:
+            path.rename(candidate)
+        renamed.append(candidate)
+    return renamed
 
 
 # Winston-Lutz não tem UM ângulo de gantry/colimador (o teste é justamente
@@ -173,6 +216,10 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
     input_mode = config["input_mode"]
     constructor_kwargs = build_kwargs(config, params_dict, "constructor_param_map", "constructor_param_cast")
 
+    if config.get("rename_files_by_series_description"):
+        saved_paths = rename_files_by_series_description(saved_paths)
+        constructor_kwargs["use_filenames"] = True
+
     if input_mode == "single":
         if len(saved_paths) != 1:
             raise AnalysisError("Este teste espera exatamente 1 arquivo.", 400)
@@ -184,7 +231,7 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
             )
         instance = cls([str(p) for p in saved_paths])
     elif input_mode == "multiple":
-        instance = cls(tmp_dir)
+        instance = cls(tmp_dir, **constructor_kwargs)
     elif input_mode == "series":
         if len(saved_paths) == 1 and saved_paths[0].suffix.lower() == ".zip":
             instance = cls(str(saved_paths[0]), is_zip=True)
