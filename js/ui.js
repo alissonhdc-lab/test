@@ -901,6 +901,20 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return Array.isArray(details) && details.length > 0 ? details : null;
   }
 
+  function analyzedImagePngB64(result) {
+    const b64 = result.rawMetrics && result.rawMetrics._analyzed_image_png_b64;
+    return typeof b64 === "string" && b64.length > 0 ? b64 : null;
+  }
+
+  // Chaves auxiliares grandes (ex.: a imagem renderizada em base64) não
+  // servem como texto bruto para o físico conferir — são exibidas de outra
+  // forma (ex.: como <img>) e ficam de fora do dump de JSON "cru".
+  function rawMetricsForDisplay(rawMetrics) {
+    if (!rawMetrics) return rawMetrics;
+    const { _analyzed_image_png_b64, ...rest } = rawMetrics;
+    return rest;
+  }
+
   function resultDetailHtml(routine, result, session) {
     const isAdmin = session.role === "admin";
     const metrics = routine.metrics || [];
@@ -911,6 +925,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       })
       .join("");
     const wlDetails = winstonLutzImageDetails(routine, result);
+    const analyzedImage = analyzedImagePngB64(result);
     return `
       <div class="result-detail">
         <p><b>Data:</b> ${fmtDate(result.date)} &nbsp; <b>Executado por:</b> ${esc(result.performedByName || "—")}</p>
@@ -918,6 +933,14 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <thead><tr><th>Métrica</th><th>Valor</th><th>Tolerância</th></tr></thead>
           <tbody>${rows || "<tr><td colspan=3>Sem métricas.</td></tr>"}</tbody>
         </table>
+        ${
+          analyzedImage
+            ? `<h4 class="mt">Imagem analisada</h4>
+               <div class="panel-inset analyzed-image-box">
+                 <img class="analyzed-image" src="data:image/png;base64,${analyzedImage}" alt="Imagem analisada: linhas ajustadas e círculo de menor diâmetro (wobble)" />
+               </div>`
+            : ""
+        }
         ${
           wlDetails
             ? `<h4 class="mt">Detalhe por imagem</h4>
@@ -938,7 +961,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         }</p>
         ${
           result.rawMetrics
-            ? `<details><summary>Ver todos os dados retornados pelo pylinac</summary><pre class="raw-json">${esc(JSON.stringify(result.rawMetrics, null, 2))}</pre></details>`
+            ? `<details><summary>Ver todos os dados retornados pelo pylinac</summary><pre class="raw-json">${esc(JSON.stringify(rawMetricsForDisplay(result.rawMetrics), null, 2))}</pre></details>`
             : ""
         }
         <div class="form-actions">

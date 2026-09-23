@@ -101,6 +101,11 @@ MODULES = {
         "cls": pylinac.Starshot,
         "input_mode": "single",
         "extract_dicom_angles": True,
+        # Mostra ao físico a mesma imagem que o relatório do pylinac: a
+        # imagem 2D com as linhas ajustadas de cada exposição e o círculo
+        # mínimo ("wobble") que elas formam (ver render_analyzed_image_png_b64
+        # em analysis.py).
+        "render_analyzed_image": True,
         "param_map": {
             "tolerance_mm": "tolerance",
             "radius": "radius",

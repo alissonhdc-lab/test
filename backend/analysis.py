@@ -3,6 +3,8 @@ analysis.py — Lógica de execução do pylinac, compartilhada entre o endpoint
 HTTP /api/analyze e o observador de pastas (watcher.py).
 """
 
+import base64
+import io
 import logging
 import re
 import traceback
@@ -172,6 +174,33 @@ def extract_wl_image_details(results_dict):
     return out
 
 
+def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110):
+    """Gera a mesma figura que o pylinac usa no relatório (imagem 2D com as
+    marcações da análise, ex.: para o Starshot: as linhas ajustadas de cada
+    exposição e o círculo mínimo — 'wobble' — que elas formam) e devolve
+    como PNG em base64, pronto para exibir num <img> no navegador. Requer
+    que ``instance.plot_analyzed_image`` exista (todo módulo do pylinac com
+    imagem 2D tem esse método) e que o matplotlib esteja configurado com o
+    backend "Agg" (ver main.py) — sem isso, tentar desenhar trava/lança erro
+    num processo de servidor sem tela."""
+    import matplotlib.pyplot as plt
+
+    fig = None
+    try:
+        instance.plot_analyzed_image(show=False, figsize=figsize)
+        fig = plt.gcf()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+        buf.seek(0)
+        return base64.b64encode(buf.read()).decode("ascii")
+    except Exception:
+        logger.exception("Falha ao renderizar a imagem analisada")
+        return None
+    finally:
+        if fig is not None:
+            plt.close(fig)
+
+
 def build_kwargs(config, params: dict, map_key="param_map", cast_key="param_cast"):
     param_map = config.get(map_key, {})
     param_cast = config.get(cast_key, {})
@@ -257,6 +286,9 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
 
         if config.get("extract_wl_image_details") and isinstance(results_dict, dict):
             flat["_wl_image_details"] = extract_wl_image_details(results_dict)
+
+        if config.get("render_analyzed_image"):
+            flat["_analyzed_image_png_b64"] = render_analyzed_image_png_b64(instance)
 
         warnings_list = []
         if isinstance(results_dict, dict) and results_dict.get("warnings"):

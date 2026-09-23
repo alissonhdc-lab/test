@@ -20,6 +20,15 @@ Rodar:
 Veja README.md nesta pasta para instruções completas.
 """
 
+import matplotlib
+
+# Precisa ser configurado ANTES de qualquer import que puxe o pylinac (que
+# importa matplotlib.pyplot internamente para os métodos de plot, ex.:
+# Starshot.plot_analyzed_image): "Agg" é um backend sem interface gráfica,
+# necessário porque o backend roda como serviço/servidor, sem uma sessão
+# de desktop para abrir uma janela.
+matplotlib.use("Agg")
+
 import json
 import logging
 import os

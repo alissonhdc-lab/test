@@ -3,3 +3,4 @@ uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 pylinac>=3.40
 pydicom>=2.4
+matplotlib>=3.7

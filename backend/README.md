@@ -130,6 +130,16 @@ do resultado): TG-51/TRS-398, Winston-Lutz multi-alvo, DLG, ACR CT/MRI e
 análise de log de trajetória. O app explica isso na tela de cada um desses
 testes.
 
+### Starshot: imagem analisada (linhas e círculo de wobble)
+
+Igual ao relatório do pylinac para este teste, o detalhe do resultado
+mostra a própria imagem 2D enviada com as linhas ajustadas de cada
+exposição e o círculo de menor diâmetro que elas formam ("wobble") — num
+painel com a imagem inteira e outro com zoom no círculo. É gerada pelo
+próprio `pylinac` (`plot_analyzed_image`) no momento da análise e enviada
+como PNG; o app não guarda a imagem original enviada, só essa figura já
+anotada.
+
 ### Winston-Lutz: ângulos lidos pelo nome do arquivo
 
 Antes de rodar o pylinac, o backend renomeia cada imagem enviada para o
