@@ -189,6 +189,31 @@ recalcula o centro do campo com esse limiar e refina o centro da BB
 limiares bem diferentes de 50% chegam a mudar o resultado de forma
 perceptível).
 
+### IsoAlign: coincidência campo luminoso × radiação
+
+Testa a coincidência entre o campo luminoso (posição das esferas/BBs do
+fantoma PTW Iso-Align, posicionadas manualmente pelo físico com o campo
+de luz) e o campo de radiação real, a partir de **1 imagem** de EPID.
+Usa `pylinac.IsoAlign` (subclasse de `StandardImagingFC2`, já existente
+na biblioteca), com o mesmo fluxo de recorte de borda e limiar de BB
+usado historicamente pelo físico fora do app.
+
+Parâmetros configuráveis na rotina: FWXM para detecção do campo
+(padrão 50%), limiar de borda da BB em mm (padrão 3mm), multiplicador
+do kernel de detecção de BB, inverter imagem, e o recorte de borda da
+imagem em pixels antes de analisar (padrão 100px — remove marcas de
+gráticula/artefatos de borda que podem atrapalhar a detecção).
+
+Métricas devolvidas: tamanho de campo X/Y, desvio campo→EPID X/Y,
+desvio campo→BB X/Y (esse é o "Luz × Rad" propriamente dito — quanto o
+campo de radiação se desviou de onde o físico marcou o campo de luz), e
+o **erro máximo Luz × Rad**, calculado como `max(|desvio X|, |desvio
+Y|)` — o número mais importante do teste, mas que o pylinac não devolve
+pronto (é derivado no backend, `modules_config.py`). O detalhe do
+resultado também mostra a imagem analisada, com o centro do campo
+(vermelho), o centro do EPID (azul) e o centroide da BB (verde)
+marcados, igual ao relatório em PDF que o pylinac gera.
+
 ## Pasta observada — análise 100% automática
 
 Para os testes com upload de arquivo, cada rotina pode ter uma ou mais

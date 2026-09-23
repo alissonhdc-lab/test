@@ -65,6 +65,31 @@ def _int_cast(value):
     return int(float(value))
 
 
+def _max_abs_field(target_key, *source_keys):
+    """postprocess: adiciona ao resultado o maior valor absoluto entre os
+    campos indicados — ex.: o "erro máximo Luz × Rad" do IsoAlign, que é
+    literalmente max(|desvio X|, |desvio Y|)."""
+
+    def _fn(flat):
+        values = [abs(float(flat[k])) for k in source_keys if flat.get(k) is not None]
+        if values:
+            flat[target_key] = max(values)
+        return flat
+
+    return _fn
+
+
+def _crop_image_hook(instance, params_dict):
+    """pre_analyze_hook: recorta as bordas da imagem antes de analisar —
+    remove marcas de gráticula/artefatos de borda que podem atrapalhar a
+    detecção do campo/BB (mesmo pré-processamento usado no fluxo local do
+    físico para o IsoAlign)."""
+    crop_px = (params_dict or {}).get("crop_px")
+    crop_px = 100 if crop_px in (None, "") else int(float(crop_px))
+    if crop_px > 0:
+        instance.image.crop(pixels=crop_px)
+
+
 MODULES = {
     "picketfence": {
         "cls": pylinac.PicketFence,
@@ -262,6 +287,35 @@ MODULES = {
         "param_map": {"invert": "invert", "ssd": "ssd"},
         "param_cast": {"invert": _bool_cast},
         "exclude_prefixes": ["low_contrast_rois", "mtf_lp_mm"],
+    },
+    "isoalign": {
+        # Fantoma PTW Iso-Align: verifica a coincidência entre o campo
+        # luminoso (posicionamento manual das BBs pelo físico com o campo
+        # de luz) e o campo de radiação real. Já existe no pylinac
+        # (pylinac.IsoAlign, subclasse de StandardImagingFC2) — a "adaptação"
+        # é o fluxo em torno dele (recorte de borda, limiar de BB, PDF com
+        # o erro máximo Luz×Rad já calculado), que replicamos abaixo.
+        "cls": pylinac.IsoAlign,
+        "input_mode": "single",
+        "extract_dicom_angles": True,
+        "render_analyzed_image": True,
+        "pre_analyze_hook": _crop_image_hook,
+        "param_map": {
+            "invert": "invert",
+            "fwxm": "fwxm",
+            "bb_edge_threshold_mm": "bb_edge_threshold_mm",
+            "kernel_size_multiplier": "kernel_size_multiplier",
+        },
+        "param_cast": {
+            "invert": _bool_cast,
+            "fwxm": _int_cast,
+            "bb_edge_threshold_mm": _float_cast,
+            "kernel_size_multiplier": _float_cast,
+        },
+        # O "erro máximo Luz×Rad" (o número que mais importa nesse teste)
+        # não vem pronto do pylinac — é max(|desvio X|, |desvio Y|) do
+        # campo em relação à BB, calculado à parte no fluxo do físico.
+        "postprocess": _max_abs_field("max_light_rad_error_mm", "field_bb_offset_x_mm", "field_bb_offset_y_mm"),
     },
     "catphan": {
         # classe real escolhida em tempo de execução via params["phantom_model"]
