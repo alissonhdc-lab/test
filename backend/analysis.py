@@ -187,7 +187,14 @@ def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110):
 
     fig = None
     try:
-        instance.plot_analyzed_image(show=False, figsize=figsize)
+        # Nem todo módulo do pylinac aceita "figsize" em plot_analyzed_image
+        # (ex.: PicketFence usa "figure_size", com "auto" já bem ajustado
+        # por eixo/orientação) — nesse caso cai para o tamanho padrão do
+        # próprio módulo em vez de travar a análise inteira por causa disso.
+        try:
+            instance.plot_analyzed_image(show=False, figsize=figsize)
+        except TypeError:
+            instance.plot_analyzed_image(show=False)
         fig = plt.gcf()
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")

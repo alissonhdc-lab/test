@@ -96,6 +96,12 @@ MODULES = {
             ),
             "crop_mm": _int_cast,
         },
+        # Mostra ao físico a imagem com os trilhos-guia, os picos de cada
+        # lâmina do MLC detectados, um overlay colorido pelo status de cada
+        # lâmina e um gráfico de barras do erro médio/desvio por lâmina —
+        # para identificar visualmente quais lâminas tiveram desvio maior
+        # (ver render_analyzed_image_png_b64 em analysis.py).
+        "render_analyzed_image": True,
     },
     "starshot": {
         "cls": pylinac.Starshot,

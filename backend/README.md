@@ -130,6 +130,14 @@ do resultado): TG-51/TRS-398, Winston-Lutz multi-alvo, DLG, ACR CT/MRI e
 análise de log de trajetória. O app explica isso na tela de cada um desses
 testes.
 
+### Picket Fence e Starshot: imagem analisada
+
+No Picket Fence, o detalhe do resultado mostra a imagem com os
+trilhos-guia de cada picket, os picos de cada lâmina do MLC detectados e
+um gráfico de erro médio (com barra de desvio) por lâmina ao lado — para
+identificar visualmente quais lâminas tiveram desvio maior, sem precisar
+adivinhar só pelos números agregados.
+
 ### Starshot: imagem analisada (linhas e círculo de wobble)
 
 Igual ao relatório do pylinac para este teste, o detalhe do resultado
