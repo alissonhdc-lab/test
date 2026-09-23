@@ -173,13 +173,21 @@ testes — ainda assim, tudo local em SQLite, sem limite prático de
 tamanho para isso.
 
 As duas bordas são desenhadas com a definição padrão de borda em
-dosimetria (um limiar entre o nível de fundo e o platô), mas o **limiar
+dosimetria (um limiar entre o nível de fundo e o platô), e o **limiar
 exato é configurável ao criar/editar a rotina** — campos "Limiar da
 borda de campo" e "Limiar da borda da BB" (0–100%, padrão 50%): valores
 menores tornam a segmentação mais permissiva (pega mais da penumbra),
-valores maiores mais restritiva (só o núcleo mais bem definido). Isso
-afeta só a visualização na galeria, não os números da análise em si
-(que continuam sendo os do algoritmo do próprio pylinac).
+valores maiores mais restritiva (só o núcleo mais bem definido).
+
+Esse limiar não é só cosmético: ele determina de verdade o centro
+calculado da borda de campo e da BB usado no resultado (erro CAX→BB,
+isocentro 3D, etc.) — não só o contorno desenhado na galeria. A rotina
+usa uma versão do `WinstonLutz` do pylinac (`backend/wl_custom.py`) que
+recalcula o centro do campo com esse limiar e refina o centro da BB
+(ancorado na detecção robusta original do pylinac, então o padrão de
+50% fica dentro de uma fração de pixel do resultado original — só
+limiares bem diferentes de 50% chegam a mudar o resultado de forma
+perceptível).
 
 ## Pasta observada — análise 100% automática
 

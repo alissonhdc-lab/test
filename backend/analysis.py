@@ -14,6 +14,7 @@ import numpy as np
 import pydicom
 
 from modules_config import MODULES
+from wl_custom import threshold_from_pct
 
 logger = logging.getLogger("rtqc-backend")
 
@@ -149,31 +150,20 @@ def rename_files_by_series_description(paths):
 WL_AXIS_ORDER = {"Reference": 0, "Gantry": 1, "Collimator": 2, "Couch": 3, "GB Combo": 4}
 
 
-def _threshold_from_pct(arr, pct, lo_hi_percentiles=(5, 99.9)):
-    """Converte um limiar em % (0 = nível do fundo, 100 = nível do platô)
-    num valor de intensidade real, usando os percentis do array como
-    referência de fundo/platô (mais robusto que usar o mínimo/máximo
-    absolutos, sensíveis a ruído/artefatos isolados)."""
-    lo, hi = np.percentile(arr, lo_hi_percentiles)
-    frac = max(0.0, min(100.0, float(pct))) / 100.0
-    return lo + frac * (hi - lo)
-
-
 def _draw_wl_field_edge(ax, wl_image, threshold_pct=50.0):
     """Desenha o contorno do campo segmentado por cima da imagem já
     plotada. O pylinac NÃO desenha isso por padrão em WLBaseImage.plot()
-    (só marca o centro do campo, não a borda) — aqui usamos a definição
-    padrão de borda de campo em dosimetria (por padrão, o contorno no
-    limiar de 50% entre o fundo e o platô do campo — mesma referência que
-    o pylinac usa internamente para localizar o centro do campo em
-    WinstonLutz2D.find_field_centroids() — mas configurável pela rotina,
-    já que o contraste real varia por equipamento/técnica de imagem)."""
+    (só marca o centro do campo, não a borda). Usa o mesmo limiar (e a
+    mesma lógica) que wl_custom.ThresholdWinstonLutz2D.find_field_centroids()
+    já usou para calcular o centro do campo de verdade — o contorno aqui é
+    só a representação visual dessa mesma segmentação, então fica sempre
+    consistente com o marcador de centro desenhado por cima."""
     from scipy import ndimage as ndi
     from skimage import measure
 
     try:
         arr = wl_image.array
-        threshold = _threshold_from_pct(arr, threshold_pct, (5, 99.9))
+        threshold = threshold_from_pct(arr, threshold_pct, (5, 99.9))
         filled = ndi.binary_fill_holes(arr >= threshold)
         for contour in measure.find_contours(filled.astype(float), 0.5):
             ax.plot(contour[:, 1], contour[:, 0], color="yellow", linewidth=1.3)
@@ -183,12 +173,12 @@ def _draw_wl_field_edge(ax, wl_image, threshold_pct=50.0):
 
 def _draw_wl_bb_edge(ax, wl_image, threshold_pct=50.0, low_density_bb=False, bb_diameter_mm=5.0):
     """Desenha o contorno segmentado de cada BB detectada, numa janela
-    local ao redor da posição já encontrada pelo pylinac (não refaz a
-    detecção em si — só segmenta a borda da BB para mostrar visualmente,
-    com um limiar configurável pela rotina, análogo ao da borda de
-    campo). BB normal (não 'low density') aparece mais escura que o fundo
-    do campo ao redor; BB de baixa densidade aparece mais clara — mesma
-    convenção que o parâmetro 'low_density_bb' já usa na análise real."""
+    local ao redor da posição já encontrada (ver
+    wl_custom.ThresholdWinstonLutz2D.find_bb_centroids, que usa esse mesmo
+    limiar para refinar o centro real da BB usado no resultado). BB normal
+    (não 'low density') aparece mais escura que o fundo do campo ao redor;
+    BB de baixa densidade aparece mais clara — mesma convenção que o
+    parâmetro 'low_density_bb' já usa na análise real."""
     from scipy import ndimage as ndi
     from skimage import measure
 
@@ -203,7 +193,7 @@ def _draw_wl_bb_edge(ax, wl_image, threshold_pct=50.0, low_density_bb=False, bb_
             if x1 - x0 < 3 or y1 - y0 < 3:
                 continue
             crop = arr[y0:y1, x0:x1]
-            threshold = _threshold_from_pct(crop, threshold_pct, (1, 99))
+            threshold = threshold_from_pct(crop, threshold_pct, (1, 99))
             mask = crop >= threshold if low_density_bb else crop <= threshold
             filled = ndi.binary_fill_holes(mask)
             for contour in measure.find_contours(filled.astype(float), 0.5):
@@ -384,6 +374,10 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
             instance = cls(tmp_dir)
     else:
         raise AnalysisError(f"input_mode não suportado: {input_mode}", 500)
+
+    pre_analyze_hook = config.get("pre_analyze_hook")
+    if pre_analyze_hook:
+        pre_analyze_hook(instance, params_dict)
 
     try:
         analyze_kwargs = build_kwargs(config, params_dict)

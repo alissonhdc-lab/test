@@ -22,6 +22,8 @@ Cada entrada:
 
 import pylinac
 
+import wl_custom
+
 
 def _abs_fields(*keys):
     def _fn(flat):
@@ -128,7 +130,12 @@ MODULES = {
         "constructor_param_cast": {"sid_mm": _float_cast},
     },
     "winston_lutz": {
-        "cls": pylinac.WinstonLutz,
+        # Subclasse local (ver wl_custom.py), não pylinac.WinstonLutz direto:
+        # é ela que faz o limiar configurado na rotina (abaixo) determinar de
+        # verdade o centro calculado da borda de campo e da BB, em vez de só
+        # mudar o desenho na galeria.
+        "cls": wl_custom.ThresholdWinstonLutz,
+        "pre_analyze_hook": wl_custom.apply_wl_thresholds,
         "input_mode": "multiple",
         "param_map": {
             "bb_size_mm": "bb_size_mm",
