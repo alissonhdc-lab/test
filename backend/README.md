@@ -225,6 +225,23 @@ referência também aparece em **todos** os gráficos polares — com
 contorno próprio para se destacar — servindo de âncora visual pra
 comparar onde o erro estava na configuração de referência.
 
+### Winston-Lutz: nível de ação e tolerância nos gráficos
+
+Além da tolerância do erro 2D CAX→BB (já configurável na rotina, como
+em qualquer métrica com tolType "max" — campo "Erro 2D máx. CAX→BB"),
+agora também dá para configurar um **nível de ação** (campo "Nível de
+ação — Erro 2D CAX→BB", opcional, deve ser um valor menor que a
+tolerância). Os dois aparecem como círculos tracejados em **todos** os
+gráficos do detalhe do resultado (dispersão e os 3 polares por eixo):
+tolerância em vermelho, nível de ação em amarelo — igual à convenção
+usual de CQ em radioterapia (ação = physicist deve investigar/corrigir;
+tolerância = limite que não pode ser ultrapassado). Diferente do
+Picket Fence (onde `action_tolerance` é um parâmetro real do
+`analyze()` do pylinac), o WinstonLutz do pylinac não tem esse
+conceito nativamente — os dois valores aqui são só para visualização
+nos gráficos, não mudam o cálculo de conforme/não conforme do
+resultado (que continua vindo só da tolerância, como já era).
+
 ### IsoAlign: gráfico de tendência e filtros
 
 O seletor de métricas do gráfico de tendência do IsoAlign mostra só as

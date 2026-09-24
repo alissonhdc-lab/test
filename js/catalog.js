@@ -170,9 +170,17 @@
           unit: "%",
           step: 1,
         },
+        {
+          key: "action_level_mm",
+          label: "Nível de ação — Erro 2D CAX→BB (opcional, deve ser menor que a tolerância abaixo)",
+          type: "number",
+          default: "",
+          unit: "mm",
+          step: 0.1,
+        },
       ],
       metrics: [
-        { key: "max_2d_cax_to_bb_mm", label: "Erro 2D máx. CAX→BB", unit: "mm", tolType: "max", tol: 1.0 },
+        { key: "max_2d_cax_to_bb_mm", label: "Erro 2D máx. CAX→BB (tolerância)", unit: "mm", tolType: "max", tol: 1.0 },
         { key: "median_2d_cax_to_bb_mm", label: "Erro 2D mediano CAX→BB", unit: "mm", tolType: "info" },
         { key: "gantry_3d_iso_diameter_mm", label: "Isocentro 3D do gantry", unit: "mm", tolType: "max", tol: 1.0 },
         { key: "coll_2d_iso_diameter_mm", label: "Isocentro do colimador", unit: "mm", tolType: "max", tol: 1.0 },

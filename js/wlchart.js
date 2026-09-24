@@ -68,7 +68,7 @@
   // ------------------------------------------------------------------
   // Gráfico 1: dispersão "alvo" do erro CAX→BB (X/Y em mm)
   // ------------------------------------------------------------------
-  function renderBullseye(container, points, toleranceMm) {
+  function renderBullseye(container, points, toleranceMm, actionLevelMm) {
     const width = 340;
     const height = 340;
     const padding = 30;
@@ -77,6 +77,7 @@
     const withXY = points.filter((p) => typeof p.cax2bbVectorXMm === "number" && typeof p.cax2bbVectorYMm === "number");
     let maxAbs = withXY.reduce((m, p) => Math.max(m, Math.abs(p.cax2bbVectorXMm), Math.abs(p.cax2bbVectorYMm)), 0);
     if (toleranceMm) maxAbs = Math.max(maxAbs, toleranceMm);
+    if (actionLevelMm) maxAbs = Math.max(maxAbs, actionLevelMm);
     maxAbs = Math.max(maxAbs * 1.25, 0.5);
 
     const scale = radiusLimit / maxAbs;
@@ -95,6 +96,9 @@
     svg.appendChild(el("line", { x1: padding, y1: cy, x2: width - padding, y2: cy, class: "wl-crosshair" }));
     svg.appendChild(el("line", { x1: cx, y1: padding, x2: cx, y2: height - padding, class: "wl-crosshair" }));
 
+    if (actionLevelMm) {
+      svg.appendChild(el("circle", { cx, cy, r: actionLevelMm * scale, class: "wl-action-circle" }));
+    }
     if (toleranceMm) {
       svg.appendChild(el("circle", { cx, cy, r: toleranceMm * scale, class: "wl-tolerance-circle" }));
     }
@@ -125,7 +129,7 @@
   // ------------------------------------------------------------------
   // Gráfico 2: mini-gráfico polar por eixo (ângulo x erro CAX→BB)
   // ------------------------------------------------------------------
-  function renderPolarAxisChart(container, axis, points) {
+  function renderPolarAxisChart(container, axis, points, toleranceMm, actionLevelMm) {
     const angleField = POLAR_ANGLE_FIELD[axis];
     const pts = points
       .filter((p) => p.axis === axis && typeof p[angleField] === "number" && typeof p.cax2bbDistanceMm === "number")
@@ -145,7 +149,10 @@
     const cx = size / 2;
     const cy = size / 2;
     const radiusLimit = size / 2 - 26;
-    const maxErr = Math.max(...pts.concat(referencePts).map((p) => p.cax2bbDistanceMm), 0.3) * 1.2;
+    let maxErr = Math.max(...pts.concat(referencePts).map((p) => p.cax2bbDistanceMm), 0.3);
+    if (toleranceMm) maxErr = Math.max(maxErr, toleranceMm);
+    if (actionLevelMm) maxErr = Math.max(maxErr, actionLevelMm);
+    maxErr *= 1.2;
     const scale = radiusLimit / maxErr;
 
     const wrap = document.createElement("div");
@@ -160,6 +167,12 @@
     const ringStep = niceStep(maxErr, 2);
     for (let r = ringStep; r <= maxErr + 0.001; r += ringStep) {
       svg.appendChild(el("circle", { cx, cy, r: r * scale, class: "wl-ring" }));
+    }
+    if (actionLevelMm) {
+      svg.appendChild(el("circle", { cx, cy, r: actionLevelMm * scale, class: "wl-action-circle" }));
+    }
+    if (toleranceMm) {
+      svg.appendChild(el("circle", { cx, cy, r: toleranceMm * scale, class: "wl-tolerance-circle" }));
     }
     // marcas de referência nos 4 quadrantes (0/90/180/270°)
     [0, 90, 180, 270].forEach((deg) => {
@@ -305,14 +318,14 @@
     const bullseyeBox = document.createElement("div");
     bullseyeBox.className = "wl-chart-box";
     bullseyeBox.innerHTML = `<div class="wl-polar-title">Dispersão do erro CAX→BB (vista do EPID)</div>`;
-    renderBullseye(bullseyeBox, points, opts.toleranceMm);
+    renderBullseye(bullseyeBox, points, opts.toleranceMm, opts.actionLevelMm);
     grid.appendChild(bullseyeBox);
 
     POLAR_AXES.forEach((axis) => {
       if (!axesPresent.includes(axis)) return;
       const box = document.createElement("div");
       box.className = "wl-chart-box";
-      renderPolarAxisChart(box, axis, points);
+      renderPolarAxisChart(box, axis, points, opts.toleranceMm, opts.actionLevelMm);
       if (box.children.length > 0) grid.appendChild(box);
     });
 
@@ -323,13 +336,13 @@
     legend.innerHTML = axesPresent
       .map((a) => `<span class="chart-legend-item"><i style="background:${axisColor(a)}"></i>${axisLabel(a)}</span>`)
       .join("");
-    container.appendChild(legend);
-    if (opts.toleranceMm) {
-      const tolNote = document.createElement("div");
-      tolNote.className = "muted small mt";
-      tolNote.textContent = `Círculo tracejado = tolerância configurada (${fmt(opts.toleranceMm, 2)} mm).`;
-      container.appendChild(tolNote);
+    if (opts.actionLevelMm) {
+      legend.innerHTML += `<span class="chart-legend-item"><i style="background:var(--warning)"></i>Nível de ação (${fmt(opts.actionLevelMm, 2)} mm)</span>`;
     }
+    if (opts.toleranceMm) {
+      legend.innerHTML += `<span class="chart-legend-item"><i style="background:#dc2626"></i>Tolerância (${fmt(opts.toleranceMm, 2)} mm)</span>`;
+    }
+    container.appendChild(legend);
 
     renderImageGallery(container, points);
     renderTable(container, points);

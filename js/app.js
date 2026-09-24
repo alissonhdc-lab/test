@@ -371,8 +371,11 @@
         const wlDetails = ui.winstonLutzImageDetails(routine, result);
         if (wlDetails) {
           const tolMetric = (routine.metrics || []).find((m) => m.key === "max_2d_cax_to_bb_mm");
+          const actionRaw = routine.params && routine.params.action_level_mm;
+          const actionLevelMm = actionRaw !== undefined && actionRaw !== null && actionRaw !== "" ? Number(actionRaw) : undefined;
           wlChart.renderWinstonLutzPanel(document.getElementById("wl-image-panel"), wlDetails, {
             toleranceMm: tolMetric && typeof tolMetric.tol === "number" ? tolMetric.tol : undefined,
+            actionLevelMm: actionLevelMm !== undefined && !Number.isNaN(actionLevelMm) ? actionLevelMm : undefined,
           });
         }
         break;
