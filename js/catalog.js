@@ -784,6 +784,161 @@
     requiresFiles: false,
   };
 
+  // ------------------------------------------------------------------
+  // Dosimetria Absoluta Mensal — Protocolo IAEA TRS-398
+  // Réplica funcional da planilha Excel historicamente usada (câmara de
+  // ionização em fantoma de água): os parâmetros abaixo são a
+  // configuração do feixe/conjunto dosimétrico (preenchida uma vez, ao
+  // criar a rotina — equivalente às abas "Feixes"/"ConjuntosDosimetricos"
+  // /"kq"/"ks e kpol" da planilha) e sessionFields são os valores que o
+  // físico lança a cada dosimetria mensal (equivalente às células de
+  // entrada manual da planilha). O cálculo em si roda no backend
+  // (backend/dosimetry_trs398.py), validado numericamente contra os
+  // valores reais da planilha.
+  // ------------------------------------------------------------------
+  const DOSIMETRY_TRS398_TYPE = {
+    id: "trs398",
+    name: "Dosimetria Absoluta Mensal (TRS-398)",
+    group: "Dosimetria",
+    pylinacRef: null,
+    applicableTypes: ["linac"],
+    description:
+      "Dosimetria absoluta mensal do feixe (câmara de ionização em fantoma de água), protocolo IAEA TRS-398 — réplica funcional da planilha de dosimetria.",
+    requiresFiles: false,
+    params: [
+      {
+        key: "beam_type",
+        label: "Tipo de feixe",
+        type: "select",
+        options: ["fotons", "eletrons"],
+        optionLabels: { fotons: "Fótons", eletrons: "Elétrons" },
+        default: "fotons",
+      },
+      { key: "reference_field", label: "Campo de referência", type: "text", default: "10x10" },
+      { key: "ssd_cm", label: "SSD", type: "number", default: 100, unit: "cm" },
+      { key: "zref_cm", label: "Zref (profundidade de referência)", type: "number", default: 10, unit: "cm" },
+      { key: "um_nominal", label: "UM nominal da sessão", type: "number", default: 100 },
+      { key: "pdp_reference", label: "PDP(campo ref., Zref) de referência", type: "number", default: "", unit: "%" },
+      {
+        key: "expected_calibration_factor",
+        label: "Rendimento esperado (Fcal)",
+        type: "number",
+        default: 1,
+        unit: "cGy/UM",
+      },
+      {
+        key: "expected_beam_quality",
+        label: "Qualidade do feixe esperada (fótons: TPR20,10 · elétrons: R50 em cm)",
+        type: "number",
+        default: "",
+      },
+      { key: "kq_a", label: "kQ — coeficiente a (fótons, câmara cilíndrica)", type: "number", default: "" },
+      { key: "kq_b", label: "kQ — coeficiente b", type: "number", default: "" },
+      { key: "kq_c", label: "kQ — coeficiente c", type: "number", default: "" },
+      { key: "kq_d", label: "kQ — coeficiente d", type: "number", default: "" },
+      {
+        key: "kq_fixed",
+        label: "kQ tabelado (elétrons, câmara de placas paralelas)",
+        type: "number",
+        default: "",
+      },
+      { key: "chamber_model", label: "Câmara de ionização — modelo", type: "text", default: "" },
+      { key: "chamber_serial", label: "Câmara — número de série", type: "text", default: "" },
+      {
+        key: "chamber_type",
+        label: "Tipo de câmara",
+        type: "select",
+        options: ["Farmer", "Placas paralelas"],
+        default: "Farmer",
+      },
+      { key: "electrometer", label: "Eletrômetro", type: "text", default: "" },
+      { key: "calibration_certificate", label: "Certificado de calibração", type: "text", default: "" },
+      { key: "working_voltage", label: "Tensão de trabalho", type: "number", default: -300, unit: "V" },
+      { key: "ndw", label: "ND,w (fator de calibração da câmara)", type: "number", default: "", unit: "cGy/nC" },
+      { key: "ndw_uncertainty_pct", label: "Incerteza do ND,w (k=2)", type: "number", default: "", unit: "%" },
+      { key: "reference_ks", label: "Ks de referência", type: "number", default: "" },
+      { key: "reference_kpol", label: "Kpol de referência", type: "number", default: "" },
+    ],
+    // sessionFields: o que o físico lança a cada dosimetria mensal (não
+    // fica salvo na rotina — vem junto de cada resultado). type
+    // "readings" = lista de réplicas separadas por vírgula (até 6, como
+    // na planilha original).
+    sessionFields: [
+      { key: "pressure_mbar", label: "Pressão (P)", type: "number", unit: "mBar", required: true },
+      { key: "temperature_c", label: "Temperatura (T)", type: "number", unit: "°C", required: true },
+      {
+        key: "m1_readings",
+        label: "Leituras M1 = M− (tensão nominal, nC) — separe por vírgula",
+        type: "readings",
+        required: true,
+      },
+      {
+        key: "m_plus_readings",
+        label: "Leituras M+ (polaridade invertida, nC) — separe por vírgula",
+        type: "readings",
+      },
+      {
+        key: "m2_readings",
+        label: "Leituras M2 (meia tensão, nC) — separe por vírgula",
+        type: "readings",
+      },
+      {
+        key: "d20_readings",
+        label: "Leituras D20 (20cm de profundidade, nC) — só fótons — separe por vírgula",
+        type: "readings",
+      },
+      {
+        key: "measure_ks_kpol",
+        label: "Medir Ks e Kpol nesta sessão? (senão usa os valores de referência da rotina)",
+        type: "checkbox",
+      },
+      { key: "adjustment_made", label: "Foi feito ajuste no acelerador nesta sessão?", type: "checkbox" },
+      {
+        key: "post_adjustment_readings",
+        label: "Leituras pós-ajuste (nC) — separe por vírgula",
+        type: "readings",
+      },
+    ],
+    metrics: [
+      { key: "ktp", label: "Ktp (correção pressão/temperatura)", unit: "", tolType: "info" },
+      { key: "pdd_20_10", label: "PDD20,10 medido", unit: "", tolType: "info" },
+      { key: "tpr_20_10", label: "TPR20,10 medido", unit: "", tolType: "info" },
+      { key: "kq", label: "kQ (fator de correção da qualidade do feixe)", unit: "", tolType: "info" },
+      { key: "ks", label: "Ks (recombinação iônica) usado", unit: "", tolType: "info" },
+      { key: "kpol", label: "Kpol (polaridade) usado", unit: "", tolType: "info" },
+      { key: "dose_zref_cgy", label: "Dose medida em Zref", unit: "cGy", tolType: "info" },
+      { key: "calibration_factor_cgy_um", label: "Fator de Calibração (antes de ajuste)", unit: "cGy/UM", tolType: "info" },
+      {
+        key: "beam_quality_deviation_pct",
+        label: "Desvio da Qualidade do Feixe",
+        unit: "%",
+        tolType: "range",
+        tolLow: -2,
+        tolHigh: 2,
+      },
+      {
+        key: "post_adjustment_calibration_factor_cgy_um",
+        label: "Fator de Calibração pós-ajuste",
+        unit: "cGy/UM",
+        tolType: "info",
+      },
+      {
+        key: "final_calibration_factor_cgy_um",
+        label: "Fator de Calibração final da sessão",
+        unit: "cGy/UM",
+        tolType: "info",
+      },
+      {
+        key: "final_calibration_factor_deviation_pct",
+        label: "Desvio do Fator de Calibração final",
+        unit: "%",
+        tolType: "range",
+        tolLow: -3,
+        tolHigh: 3,
+      },
+    ],
+  };
+
   function getModulesForType(equipmentType) {
     return PYLINAC_CATALOG.filter((m) => m.applicableTypes.includes(equipmentType));
   }
@@ -807,6 +962,7 @@
     FREQUENCIES,
     PYLINAC_CATALOG,
     MANUAL_TEST_TYPE,
+    DOSIMETRY_TRS398_TYPE,
     getModulesForType,
     getModuleById,
     groupModules,

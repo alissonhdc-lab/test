@@ -6,8 +6,26 @@
 (function (global) {
   "use strict";
 
-  const { EQUIPMENT_TYPES, FREQUENCIES, PYLINAC_CATALOG, MANUAL_TEST_TYPE, getModulesForType, getModuleById, groupModules } =
-    global.RTQC.catalog;
+  const {
+    EQUIPMENT_TYPES,
+    FREQUENCIES,
+    PYLINAC_CATALOG,
+    MANUAL_TEST_TYPE,
+    DOSIMETRY_TRS398_TYPE,
+    getModulesForType,
+    getModuleById,
+    groupModules,
+  } = global.RTQC.catalog;
+
+  // Resolve o "módulo" (definição de params/metrics) de uma rotina,
+  // qualquer que seja seu testType — pylinac (vinculado a um módulo do
+  // catálogo), trs398 (dosimetria TRS-398, config fixa) ou manual
+  // (métricas livres definidas pelo usuário).
+  function moduleForRoutine(routine) {
+    if (routine.testType === "pylinac") return getModuleById(routine.moduleId);
+    if (routine.testType === "trs398") return DOSIMETRY_TRS398_TYPE;
+    return MANUAL_TEST_TYPE;
+  }
 
   function esc(str) {
     if (str === null || str === undefined) return "";
@@ -316,7 +334,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         const rows = g.items
           .map((r) => {
             const due = util.routineDueStatus(r, db.results);
-            const module = r.testType === "pylinac" ? getModuleById(r.moduleId) : MANUAL_TEST_TYPE;
+            const module = moduleForRoutine(r);
             const resultsCount = db.results.filter((x) => x.routineId === r.id).length;
             return `
             <tr class="clickable-row" data-action="open-routine" data-id="${r.id}">
@@ -410,6 +428,11 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           .map((m) => {
             const saved = savedByKey[m.key] || {};
             const tolType = saved.tolType || m.tolType;
+            const effective = {
+              tol: saved.tol !== undefined ? saved.tol : m.tol,
+              tolLow: saved.tolLow !== undefined ? saved.tolLow : m.tolLow,
+              tolHigh: saved.tolHigh !== undefined ? saved.tolHigh : m.tolHigh,
+            };
             return `
             <tr data-metric-row="${m.key}">
               <td>${esc(m.label)}
@@ -418,7 +441,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
                 <input type="hidden" name="metric__${m.key}__tolType" value="${esc(tolType)}" />
               </td>
               <td>${esc(m.unit || "—")}</td>
-              <td>${toleranceInputsHtml("metric__" + m.key, tolType, saved)}</td>
+              <td>${toleranceInputsHtml("metric__" + m.key, tolType, effective)}</td>
             </tr>`;
           })
           .join("")}
@@ -509,6 +532,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <input type="radio" name="testType" value="pylinac" ${testType === "pylinac" ? "checked" : ""} data-action="toggle-test-type" /> Vinculado a módulo pylinac
         </label>
         <label class="radio-label">
+          <input type="radio" name="testType" value="trs398" ${testType === "trs398" ? "checked" : ""} data-action="toggle-test-type" /> Dosimetria Absoluta Mensal (TRS-398)
+        </label>
+        <label class="radio-label">
           <input type="radio" name="testType" value="manual" ${testType === "manual" ? "checked" : ""} data-action="toggle-test-type" /> Manual / genérico
         </label>
       </fieldset>
@@ -524,6 +550,15 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <div id="module-params-container" class="params-grid">${selectedModule ? moduleParamsFormHtml(selectedModule, r.params) : ""}</div>
         <h4 class="mt">Métricas e tolerâncias de aprovação</h4>
         <div id="module-metrics-container">${selectedModule ? moduleMetricsPreviewHtml(selectedModule, r.metrics) : ""}</div>
+      </div>
+
+      <div id="trs398-section" class="${testType === "trs398" ? "" : "hidden"}">
+        <p class="muted small">${esc(DOSIMETRY_TRS398_TYPE.description)}</p>
+        <h4>Configuração do feixe e do conjunto dosimétrico</h4>
+        <p class="muted small">Preenchida uma vez (equivalente às planilhas de referência) — o físico só lança as leituras a cada dosimetria mensal.</p>
+        <div class="params-grid">${moduleParamsFormHtml(DOSIMETRY_TRS398_TYPE, r.params)}</div>
+        <h4 class="mt">Métricas e tolerâncias de aprovação</h4>
+        <div>${moduleMetricsPreviewHtml(DOSIMETRY_TRS398_TYPE, r.metrics)}</div>
       </div>
 
       <div id="manual-section" class="${testType === "manual" ? "" : "hidden"}">
@@ -551,7 +586,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   function renderRoutineDetail(db, equipment, routine, selectedMetricKeys, watchFolders, allResults, filteredResults, filters, filterOptions, session) {
     const isAdmin = session.role === "admin";
-    const module = routine.testType === "pylinac" ? getModuleById(routine.moduleId) : MANUAL_TEST_TYPE;
+    const module = moduleForRoutine(routine);
     const results = (filteredResults || db.results.filter((r) => r.routineId === routine.id)).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
     allResults = allResults || results;
     const metrics = routine.metrics || [];
@@ -859,6 +894,48 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     </div>`;
   }
 
+  // Formulário de lançamento da sessão mensal de dosimetria TRS-398 — o
+  // que o físico digita a cada execução (leituras, P/T, checkboxes). Os
+  // parâmetros de referência (routine.params) não entram aqui, já estão
+  // fixados na rotina. type "readings" vira um campo de texto único
+  // (réplicas separadas por vírgula) — mais simples que uma grade
+  // dinâmica de linhas, e igualmente fiel à planilha original (até 6
+  // réplicas por leitura).
+  function trs398SessionFormHtml() {
+    const fields = DOSIMETRY_TRS398_TYPE.sessionFields
+      .map((f) => {
+        if (f.type === "checkbox") {
+          return `<label class="checkbox-label">
+            <input type="checkbox" name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="checkbox" />
+            ${esc(f.label)}
+          </label>`;
+        }
+        if (f.type === "readings") {
+          return `<label>${esc(f.label)}
+            <input type="text" name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="readings" placeholder="ex.: 11.54, 11.55, 11.54" />
+          </label>`;
+        }
+        return `<label>${esc(f.label)} ${f.unit ? `<span class="unit-tag">${esc(f.unit)}</span>` : ""}
+          <input type="number" step="any" name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="number" ${f.required ? "required" : ""} />
+        </label>`;
+      })
+      .join("");
+
+    return `
+    <div class="trs398-session-section" data-module-id="trs398">
+      <h4>Dosimetria Absoluta Mensal (TRS-398) — leituras desta sessão</h4>
+      <div class="params-grid">${fields}</div>
+      <button type="button" class="btn btn-primary" data-action="run-dosimetry-calculation">▶ Calcular</button>
+      <div id="pylinac-analysis-status" class="pylinac-status muted small"></div>
+      <details id="pylinac-raw-details" class="hidden mt">
+        <summary>Ver todos os dados calculados</summary>
+        <pre id="pylinac-raw-json" class="raw-json"></pre>
+      </details>
+      <input type="hidden" name="raw_metrics_json" id="raw-metrics-json-field" value="" />
+      <input type="hidden" name="source_files_json" id="source-files-json-field" value="" />
+    </div>`;
+  }
+
   function resultFormHtml(routine, module) {
     const metrics = routine.metrics || [];
     const fields = metrics
@@ -879,6 +956,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       .join("");
 
     const showUpload = module && module.requiresFiles;
+    const showTrs398 = routine.testType === "trs398";
 
     return `
     <form id="result-form" class="stacked-form" data-routine-id="${routine.id}">
@@ -889,12 +967,13 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <input type="text" name="performedByName" required placeholder="Nome de quem realizou o teste" />
       </label>
       ${showUpload ? pylinacUploadSectionHtml(module) : ""}
+      ${showTrs398 ? trs398SessionFormHtml() : ""}
       ${
-        module && !module.requiresFiles && module.autoAnalysisNote
+        module && !module.requiresFiles && !showTrs398 && module.autoAnalysisNote
           ? `<p class="muted small">ℹ️ ${esc(module.autoAnalysisNote)}</p>`
           : ""
       }
-      <h4 class="${showUpload ? "mt" : ""}">Valores do resultado${showUpload ? " (confira antes de salvar)" : ""}</h4>
+      <h4 class="${showUpload || showTrs398 ? "mt" : ""}">Valores do resultado${showUpload || showTrs398 ? " (confira antes de salvar)" : ""}</h4>
       <div class="params-grid">${fields || '<p class="muted">Esta rotina não possui métricas configuradas.</p>'}</div>
       ${
         metrics.length === 0

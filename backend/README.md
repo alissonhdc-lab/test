@@ -336,6 +336,42 @@ Detalhes de funcionamento:
 - Data do resultado: quando possível, é lida da tag DICOM `StudyDate` da
   própria imagem; senão usa a data do processamento.
 
+## Dosimetria Absoluta Mensal (TRS-398)
+
+Módulo `"trs398"`: dosimetria mensal do feixe (câmara de ionização em
+fantoma de água), seguindo o protocolo IAEA TRS-398. Diferente dos demais
+testes do catálogo, **não envolve upload de arquivo/DICOM** — é uma
+rotina de cálculo puro (`dosimetry_trs398.py`), acionada pelo botão
+"▶ Calcular" na tela de resultado, que chama `POST
+/api/dosimetry/calculate`.
+
+A rotina é dividida em duas partes, espelhando exatamente a planilha de
+dosimetria usada como referência para a implementação:
+
+- **Parâmetros da rotina** (preenchidos uma vez, na criação/edição da
+  rotina — equivalem às abas de configuração da planilha: feixe, conjunto
+  dosimétrico, coeficientes de kQ, Ks/Kpol de referência): tipo de feixe,
+  campo/SSD/Zref de referência, UM nominal, PDP de referência, rendimento
+  e qualidade do feixe esperados, coeficientes do polinômio de kQ (fótons,
+  câmara cilíndrica) ou kQ tabelado (elétrons, câmara de placas paralelas),
+  dados da câmara/eletrômetro, ND,w e Ks/Kpol de referência.
+- **Leituras da sessão** (lançadas pelo físico a cada dosimetria mensal —
+  equivalem às células de entrada do operador na planilha): pressão,
+  temperatura, réplicas de leitura M1/M+/M2/D20 (listas separadas por
+  vírgula), se Ks/Kpol foram remedidos nesta sessão ou usam o valor de
+  referência, se houve ajuste do acelerador no meio da sessão e as
+  leituras pós-ajuste.
+
+`dosimetry_trs398.py` reimplementa a cadeia de fórmulas da planilha (Ktp,
+PDD20,10→TPR20,10, kQ via polinômio de Andreo, Ks pelo método de duas
+tensões, Kpol, dose em Zref, fator de calibração e sua normalização
+pré/pós-ajuste) e foi validado número a número contra uma sessão real da
+planilha (feixe Synergy X6), incluindo uma particularidade não-óbvia da
+planilha original: a célula que compara a "qualidade do feixe" contra o
+valor de referência usa, na verdade, o TPR20,10 (não o PDD20,10, apesar
+dos rótulos em ambas as pontas dizerem "PDD20,10"/"PDP20,10") — mantido
+assim de propósito, para bater com o histórico já calculado pela física.
+
 ## Estrutura do código
 
 | Arquivo              | Responsabilidade                                             |
@@ -344,6 +380,7 @@ Detalhes de funcionamento:
 | `auth.py`              | Hash/verificação de senha, criação de usuário                 |
 | `analysis.py`          | Lógica de execução do pylinac (usada por `/api/analyze` e pelo observador) |
 | `modules_config.py`    | Mapeamento de cada teste do catálogo para a classe pylinac real, parâmetros e métricas |
+| `dosimetry_trs398.py`  | Cálculo da dosimetria absoluta mensal (TRS-398) — sem arquivo/DICOM, usado por `/api/dosimetry/calculate` |
 | `watcher.py`           | Observador de pastas em segundo plano                         |
 | `main.py`              | API REST (FastAPI) e ponto de entrada                          |
 

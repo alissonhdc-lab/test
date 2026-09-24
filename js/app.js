@@ -363,6 +363,9 @@
       case "run-pylinac-analysis":
         runPylinacAnalysis(el);
         break;
+      case "run-dosimetry-calculation":
+        runDosimetryCalculation(el);
+        break;
       case "view-result": {
         const db = await store.get();
         const result = db.results.find((x) => x.id === el.dataset.id);
@@ -543,6 +546,7 @@
       const val = e.target.value;
       document.getElementById("pylinac-section").classList.toggle("hidden", val !== "pylinac");
       document.getElementById("manual-section").classList.toggle("hidden", val !== "manual");
+      document.getElementById("trs398-section").classList.toggle("hidden", val !== "trs398");
     }
     if (e.target.id === "module-select") {
       const module = catalog.getModuleById(e.target.value);
@@ -646,6 +650,22 @@
           }
           return entry;
         });
+      } else if (testType === "trs398") {
+        const module = catalog.DOSIMETRY_TRS398_TYPE;
+        module.params.forEach((p) => {
+          const raw = fd.get("param__" + p.key);
+          params[p.key] = p.type === "checkbox" ? form.querySelector(`[name="param__${p.key}"]`).checked : raw;
+        });
+        metrics = module.metrics.map((m) => {
+          const tolType = fd.get(`metric__${m.key}__tolType`) || m.tolType;
+          const entry = { key: m.key, label: m.label, unit: m.unit, tolType };
+          if (tolType === "max" || tolType === "min") entry.tol = parseFloat(fd.get(`metric__${m.key}__tol`));
+          if (tolType === "range") {
+            entry.tolLow = parseFloat(fd.get(`metric__${m.key}__tolLow`));
+            entry.tolHigh = parseFloat(fd.get(`metric__${m.key}__tolHigh`));
+          }
+          return entry;
+        });
       } else {
         const rows = Array.from(form.querySelectorAll(".manual-metric-row"));
         metrics = rows
@@ -714,7 +734,12 @@
   // Modais: Resultado + Aprovação
   // ------------------------------------------------------------------
   function openResultModal(routine) {
-    const module = routine.testType === "pylinac" ? catalog.getModuleById(routine.moduleId) : null;
+    const module =
+      routine.testType === "pylinac"
+        ? catalog.getModuleById(routine.moduleId)
+        : routine.testType === "trs398"
+          ? catalog.DOSIMETRY_TRS398_TYPE
+          : null;
     modal.openModal({ title: "Registrar resultado", bodyHtml: ui.resultFormHtml(routine, module), wide: true });
     const form = document.getElementById("result-form");
     form.addEventListener("submit", async (e) => {
@@ -838,6 +863,85 @@
     } finally {
       triggerEl.disabled = false;
       triggerEl.textContent = "▶ Analisar com pylinac";
+    }
+  }
+
+  async function runDosimetryCalculation(triggerEl) {
+    const section = triggerEl.closest(".trs398-session-section");
+    const form = document.getElementById("result-form");
+    const routineId = form.dataset.routineId;
+    const db = await store.get();
+    const routine = db.routines.find((r) => r.id === routineId);
+    const statusEl = document.getElementById("pylinac-analysis-status");
+
+    const sessionData = {};
+    section.querySelectorAll(".trs398-session-input").forEach((input) => {
+      const key = input.dataset.sessionKey;
+      const type = input.dataset.sessionType;
+      if (type === "checkbox") {
+        sessionData[key] = input.checked;
+      } else if (type === "readings") {
+        const raw = (input.value || "").trim();
+        sessionData[key] = raw
+          ? raw
+              .split(",")
+              .map((s) => Number(s.trim()))
+              .filter((n) => !Number.isNaN(n))
+          : [];
+      } else {
+        sessionData[key] = input.value === "" ? null : Number(input.value);
+      }
+    });
+
+    const backendUrl = store.getBackendUrl();
+    triggerEl.disabled = true;
+    triggerEl.textContent = "Calculando...";
+    statusEl.textContent = "";
+    statusEl.className = "pylinac-status muted small";
+
+    try {
+      const authSession = auth.currentSession();
+      const headers = { "Content-Type": "application/json" };
+      if (authSession && authSession.token) headers.Authorization = `Bearer ${authSession.token}`;
+      const resp = await fetch(`${backendUrl}/api/dosimetry/calculate`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ params: routine.params || {}, session: sessionData }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        throw new Error(data.detail || "Falha no cálculo.");
+      }
+
+      (routine.metrics || []).forEach((m) => {
+        const value = data.metrics[m.key];
+        if (value === undefined) return;
+        const input = form.querySelector(`.result-metric-input[data-metric-key="${cssEscape(m.key)}"]`);
+        if (!input) return;
+        const formatted = ui.fixDecimals(value, 4);
+        input.value = formatted === null ? value : formatted;
+      });
+
+      document.getElementById("raw-metrics-json-field").value = JSON.stringify(data.metrics);
+      document.getElementById("source-files-json-field").value = JSON.stringify([]);
+      const rawJsonEl = document.getElementById("pylinac-raw-json");
+      rawJsonEl.textContent = JSON.stringify(data.metrics, null, 2);
+      document.getElementById("pylinac-raw-details").classList.remove("hidden");
+
+      statusEl.textContent =
+        "Cálculo concluído." + (data.warnings && data.warnings.length ? ` Avisos: ${data.warnings.join("; ")}` : "");
+      statusEl.className = "pylinac-status muted small";
+      modal.toast("Cálculo da dosimetria concluído. Confira os valores antes de salvar.", "success");
+    } catch (err) {
+      const isNetworkError = err instanceof TypeError;
+      statusEl.textContent = isNetworkError
+        ? `Não foi possível conectar ao servidor de análise (${backendUrl}). Verifique se o backend está rodando e a URL configurada em Backup.`
+        : `Erro no cálculo: ${err.message}`;
+      statusEl.className = "pylinac-status form-error";
+      modal.toast("Falha ao calcular a dosimetria.", "error");
+    } finally {
+      triggerEl.disabled = false;
+      triggerEl.textContent = "▶ Calcular";
     }
   }
 

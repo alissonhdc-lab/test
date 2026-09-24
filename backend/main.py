@@ -46,6 +46,7 @@ import auth
 import db
 import watcher
 from analysis import AnalysisError, run_analysis
+from dosimetry_trs398 import DosimetryError, calculate as calculate_dosimetry_trs398
 from modules_config import MODULES
 
 logging.basicConfig(level=logging.INFO)
@@ -409,3 +410,23 @@ async def analyze(
         raise HTTPException(status_code=e.status_code, detail=str(e))
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.post("/api/dosimetry/calculate")
+async def dosimetry_calculate(
+    payload: dict = Body(...),
+    x_api_key: Optional[str] = Header(None),
+    _: dict = Depends(get_current_user),
+):
+    """Calcula a dosimetria absoluta mensal (TRS-398) a partir dos
+    parâmetros de referência da rotina (routine.params) e dos valores
+    lançados pelo físico nesta sessão — sem arquivo/DICOM nenhum, por
+    isso não passa por run_analysis()/MODULES (ver dosimetry_trs398.py)."""
+    check_api_key(x_api_key)
+    params_dict = payload.get("params") or {}
+    session_dict = payload.get("session") or {}
+    try:
+        result = calculate_dosimetry_trs398(params_dict, session_dict)
+        return JSONResponse({"success": True, **result})
+    except DosimetryError as e:
+        raise HTTPException(status_code=422, detail=e.message)
