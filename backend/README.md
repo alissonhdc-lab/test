@@ -359,28 +359,50 @@ dosimetria usada como referência para a implementação:
 - **Leituras da sessão** (lançadas pelo físico a cada dosimetria mensal —
   equivalem às células de entrada do operador na planilha): pressão,
   temperatura (com o barômetro/termômetro usados, também referenciados de
-  Ativos), réplicas de leitura M1/M+/M2/D20 (listas separadas por
-  vírgula), se Ks/Kpol foram remedidos nesta sessão ou usam o valor de
-  referência, se houve ajuste do acelerador no meio da sessão e as
-  leituras pós-ajuste.
+  Ativos), réplicas de leitura M1(M−)/M+/M2/D20 (listas separadas por
+  vírgula), se houve ajuste do acelerador no meio da sessão e as leituras
+  pós-ajuste.
 
-`dosimetry_trs398.py` reimplementa a cadeia de fórmulas da planilha (Ktp,
-PDD20,10→TPR20,10, kQ via polinômio de Andreo, Ks pelo método de duas
-tensões, Kpol, dose absorvida em Zref e em Zmax, fator de calibração e sua
-normalização pré/pós-ajuste) e foi validado número a número contra uma
-sessão real da planilha (feixe Synergy X6), incluindo uma particularidade
-não-óbvia da planilha original: a célula que compara a "qualidade do
-feixe" contra o valor de referência usa, na verdade, o TPR20,10 (não o
-PDD20,10, apesar dos rótulos em ambas as pontas dizerem
-"PDD20,10"/"PDP20,10") — mantido assim de propósito, para bater com o
-histórico já calculado pela física.
+`dosimetry_trs398.py` reimplementa a cadeia de fórmulas do TRS-398/da
+planilha, e foi validado número a número contra uma sessão real da
+planilha (feixe Synergy X6), incluindo uma particularidade não-óbvia da
+planilha original: a célula que compara a "qualidade do feixe" contra o
+valor de referência usa, na verdade, o TPR20,10 (não o PDD20,10, apesar
+dos rótulos em ambas as pontas dizerem "PDD20,10"/"PDP20,10") — mantido
+assim de propósito, para bater com o histórico já calculado pela física.
+Grandezas sempre calculadas a partir das leituras desta sessão (nunca um
+valor fixo digitado):
 
-O ND,w e o Ks/Kpol de referência da câmara **não ficam digitados na
-rotina**: a rotina só guarda qual câmara de ionização (um Ativo) ela usa,
-e o `/api/dosimetry/calculate` busca sozinho a medição mais recente
-cadastrada para essa câmara em **Ativos** antes de calcular — histórico de
-calibração de verdade, em vez de três números soltos copiados à mão a
-cada nova rotina.
+- **Ktp** (TRS-398 eq. 3.2): a partir de pressão e temperatura.
+- **Ks** (recombinação iônica, TRS-398 eq. 3.7/3.8, método de duas
+  tensões de Boag para feixe pulsado): a partir de M1 (tensão nominal) e
+  M2 (meia tensão).
+- **Kpol** (polaridade, TRS-398 eq. 3.6): a partir de M1 e M+ (polaridade
+  invertida).
+- **kQ**: polinômio de Andreo (fótons, câmara cilíndrica) ou valor
+  tabelado (elétrons, câmara de placas paralelas) — mesmos coeficientes
+  configurados na rotina que a planilha usa.
+
+O ND,w **não fica digitado na rotina**: a rotina só guarda qual câmara de
+ionização (um Ativo) ela usa, e o `/api/dosimetry/calculate` busca sozinho
+a medição mais recente com Ndw preenchido em **Ativos** antes de calcular.
+Ks e Kpol dessa mesma câmara em Ativos **não entram na conta** — servem só
+de comparação informativa (`ks_deviation_pct`/`kpol_deviation_pct`) contra
+a última medição conhecida, para sinalizar deriva do conjunto dosimétrico
+ao longo do tempo. Toda vez que um resultado de dosimetria é salvo, o
+Ks/Kpol calculados nessa sessão viram sozinhos uma entrada nova nesse
+histórico (ver seção Ativos abaixo) — nunca sobrescrevendo uma anterior.
+
+A dose absorvida em Zmax (`dose_zmax_cgy`/`final_dose_zmax_cgy`) é a
+grandeza de conferência: para um feixe calibrado a 1 cGy/UM com 100 UM
+nominais, deve ficar próxima de 100 cGy. O desvio dela contra o nominal
+(`final_calibration_factor_deviation_pct`) usa o tipo de tolerância
+`"action"` (nível de ação/tolerância, padrão comum em CQ de radioterapia):
+por padrão, nível de ação ±3% e tolerância ±5% — dentro do nível de ação
+é aprovado (✓), além dele mas dentro da tolerância é aprovado com alerta
+(⚠, "ação recomendada"), além da tolerância é reprovado (✗). Esses
+percentuais são editáveis na tela da rotina, como qualquer outra
+tolerância do catálogo.
 
 ## Ativos (câmaras de ionização, eletrômetros, barômetros, termômetros...)
 
@@ -396,11 +418,14 @@ nível —, acessível pela tela **Ativos** do app. Cada ativo tem:
   fazer backup/mudar de servidor, copie a pasta `backend/uploads/` junto**
   — o backup/export da tela Backup não leva os arquivos, só os metadados
   que apontam para eles.
-- **Histórico de Ndw/Ks/Kpol** (só para câmaras de ionização): cada vez
-  que a câmara é calibrada/remedida, uma nova entrada é adicionada (data,
-  Ndw, incerteza, Ks, Kpol, tensão de trabalho, feixe/observação) — nunca
-  sobrescrita. É desse histórico que a rotina de dosimetria TRS-398 puxa
-  sozinha a medição mais recente (ver seção acima).
+- **Histórico de Ndw/Ks/Kpol** (só para câmaras de ionização): nunca
+  sobrescrito, sempre uma entrada nova por medição. O Ndw é adicionado
+  manualmente na tela do ativo (muda raramente, só quando a câmara volta
+  de calibração externa). Ks/Kpol são adicionados dos dois jeitos:
+  manualmente (ex.: uma campanha de recomissionamento) **e**
+  automaticamente, toda vez que uma sessão de dosimetria TRS-398 é salva
+  para essa câmara (ver seção acima) — é assim que o histórico fica
+  "sempre alimentado pelas vezes que ocorreram medidas dele".
 
 Uma rotina TRS-398 referencia uma câmara (obrigatório) e, opcionalmente,
 um eletrômetro; o lançamento de cada sessão mensal pode referenciar o

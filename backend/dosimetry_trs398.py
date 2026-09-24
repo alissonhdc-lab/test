@@ -13,18 +13,25 @@ nenhum aqui — é só matemática sobre os números que o físico digita. Por
 isso este módulo não usa run_analysis()/MODULES; tem seu próprio endpoint
 em main.py (/api/dosimetry/calculate).
 
-Convenção geral do cálculo (idêntica à planilha):
-1. Ktp: fator de correção de pressão e temperatura.
+Convenção geral do cálculo (idêntica à planilha — TRS-398, seção 3.2 "Basic
+physics data" e seção 7 "Determination of absorbed dose to water"):
+1. Ktp: fator de correção de pressão e temperatura (TRS-398, eq. 3.2),
+   SEMPRE calculado a partir de P e T lançados na sessão — nunca um valor
+   fixo/de referência.
 2. Fótons: PDD20,10 = D20/D10, depois TPR20,10 = 1,2661×PDD20,10 − 0,0595
-   (fórmula empírica do TRS-398 para conversão PDD→TPR sem medir TPR
-   diretamente). Elétrons: qualidade do feixe (R50) é um valor de
+   (fórmula empírica do TRS-398, eq. 3.3, para converter PDD→TPR sem medir
+   TPR diretamente). Elétrons: qualidade do feixe (R50) é um valor de
    referência já determinado na comissão do feixe, não remedido todo mês.
-2. kQ: fótons, polinômio de Andreo (a+b×TPR+c×TPR²+d×TPR³, coeficientes
-   por modelo de câmara cilíndrica); elétrons, valor tabelado fixo
-   (câmaras de placas paralelas — a planilha usa uma tabela, não fórmula).
-3. Ks (recombinação iônica): método de duas tensões (fórmula de Boag) se
-   medido neste mês, senão valor de referência já estabelecido.
-4. Kpol (polaridade): (|M+|+|M−|)/(2×|M−|) se medido, senão referência.
+3. kQ: fótons, polinômio de Andreo (a+b×TPR+c×TPR²+d×TPR³, coeficientes
+   por modelo de câmara cilíndrica, TRS-398 tabela 14); elétrons, valor
+   tabelado fixo (câmaras de placas paralelas — a planilha usa uma
+   tabela, não fórmula).
+4. Ks (recombinação iônica, TRS-398 eq. 3.7/3.8, método de duas tensões
+   de Boag para feixe pulsado) e Kpol (polaridade, TRS-398 eq. 3.6):
+   SEMPRE calculados a partir das leituras M−/M+/M(V2) desta sessão —
+   nunca um valor fixo/de referência. O histórico de Ks/Kpol de cada
+   câmara em Ativos serve só de comparação/tendência (ver
+   `last_known_ks`/`last_known_kpol` abaixo), não entra na conta.
 5. Dose absorvida na água em Zref: M1(média) × Ktp × Ks × Kpol × ND,w × kQ
    (TRS-398, eq. 7.1 — grandezas em nC/cGy/(cGy·nC⁻¹), sem unidade extra).
 6. Dose absorvida em Zmax (a grandeza que o físico quer conferir, já que
@@ -187,49 +194,40 @@ def calculate(params, session):
             raise DosimetryError("Elétrons: o valor de kQ (tabelado) precisa estar configurado na rotina.")
     flat["kq"] = kq_val
 
-    # 3 - Ks (recombinação iônica)
-    measure_ks_kpol = bool(session.get("measure_ks_kpol"))
-    ref_ks = params.get("reference_ks")
-    ref_kpol = params.get("reference_kpol")
-    try:
-        ref_ks = float(ref_ks) if ref_ks not in (None, "") else None
-    except (TypeError, ValueError):
-        ref_ks = None
-    try:
-        ref_kpol = float(ref_kpol) if ref_kpol not in (None, "") else None
-    except (TypeError, ValueError):
-        ref_kpol = None
-
-    ks_measured = _ks_two_voltage(m1_avg, m2_avg) if m2_avg else None
-    if ks_measured is not None:
-        flat["ks_measured"] = ks_measured
-    if measure_ks_kpol:
-        if ks_measured is None:
-            raise DosimetryError("Para medir Ks este mês é preciso lançar as leituras M2 (meia tensão).")
-        ks_val = ks_measured
-    else:
-        if ref_ks is None:
-            raise DosimetryError("Ks de referência não configurado na rotina (ou marque 'medir Ks/Kpol este mês').")
-        ks_val = ref_ks
+    # 3 - Ks (recombinação iônica, TRS-398 eq. 3.7/3.8 — duas tensões,
+    # feixe pulsado) — sempre calculado a partir de M1 (tensão nominal) e
+    # M2 (meia tensão) desta sessão, nunca um valor fixo.
+    if m2_avg is None:
+        raise DosimetryError("É preciso lançar as leituras M2 (meia tensão) para calcular Ks (recombinação iônica).")
+    ks_val = _ks_two_voltage(m1_avg, m2_avg)
     flat["ks"] = ks_val
-    if ks_measured is not None and ref_ks is not None:
-        flat["ks_deviation_pct"] = (1 - ks_measured / ref_ks) * 100
 
-    # 4 - Kpol (polaridade)
-    kpol_measured = _kpol(mplus_avg, m1_avg) if mplus_avg is not None else None
-    if kpol_measured is not None:
-        flat["kpol_measured"] = kpol_measured
-    if measure_ks_kpol:
-        if kpol_measured is None:
-            raise DosimetryError("Para medir Kpol este mês é preciso lançar as leituras M+ (polaridade invertida).")
-        kpol_val = kpol_measured
-    else:
-        if ref_kpol is None:
-            raise DosimetryError("Kpol de referência não configurado na rotina (ou marque 'medir Ks/Kpol este mês').")
-        kpol_val = ref_kpol
+    # 4 - Kpol (polaridade, TRS-398 eq. 3.6) — sempre calculado a partir
+    # de M1 (tensão nominal, polaridade normal) e M+ (polaridade
+    # invertida) desta sessão, nunca um valor fixo.
+    if mplus_avg is None:
+        raise DosimetryError("É preciso lançar as leituras M+ (polaridade invertida) para calcular Kpol.")
+    kpol_val = _kpol(mplus_avg, m1_avg)
     flat["kpol"] = kpol_val
-    if kpol_measured is not None and ref_kpol is not None:
-        flat["kpol_deviation_pct"] = (1 - kpol_measured / ref_kpol) * 100
+
+    # Comparação informativa com a última medição conhecida da câmara em
+    # Ativos (histórico de Ks/Kpol) — não entra na conta, só sinaliza
+    # deriva do conjunto dosimétrico ao longo do tempo. main.py preenche
+    # esses dois parâmetros a partir do histórico do ativo, quando existe.
+    last_known_ks = params.get("last_known_ks")
+    last_known_kpol = params.get("last_known_kpol")
+    try:
+        last_known_ks = float(last_known_ks) if last_known_ks not in (None, "") else None
+    except (TypeError, ValueError):
+        last_known_ks = None
+    try:
+        last_known_kpol = float(last_known_kpol) if last_known_kpol not in (None, "") else None
+    except (TypeError, ValueError):
+        last_known_kpol = None
+    if last_known_ks is not None:
+        flat["ks_deviation_pct"] = (1 - ks_val / last_known_ks) * 100
+    if last_known_kpol is not None:
+        flat["kpol_deviation_pct"] = (1 - kpol_val / last_known_kpol) * 100
 
     # 5 - Dose medida (em Zref) e 6 - Fator de calibração (em Zmax)
     try:

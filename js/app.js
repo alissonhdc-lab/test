@@ -246,6 +246,13 @@
           s.toleranceLow = Number(m.tolLow);
           s.toleranceHigh = Number(m.tolHigh);
         }
+        if (m.tolType === "action") {
+          // A banda mostrada no gráfico é a tolerância (limite duro) — o
+          // nível de ação (mais apertado) só aparece no ícone ⚠ por
+          // resultado, não como uma segunda faixa no gráfico.
+          s.toleranceLow = -Number(m.tolerancePct);
+          s.toleranceHigh = Number(m.tolerancePct);
+        }
         return s;
       })
       .filter(Boolean);
@@ -843,6 +850,10 @@
             entry.tolLow = parseFloat(fd.get(`metric__${m.key}__tolLow`));
             entry.tolHigh = parseFloat(fd.get(`metric__${m.key}__tolHigh`));
           }
+          if (tolType === "action") {
+            entry.actionPct = parseFloat(fd.get(`metric__${m.key}__actionPct`));
+            entry.tolerancePct = parseFloat(fd.get(`metric__${m.key}__tolerancePct`));
+          }
           return entry;
         });
       } else if (testType === "trs398") {
@@ -858,6 +869,10 @@
           if (tolType === "range") {
             entry.tolLow = parseFloat(fd.get(`metric__${m.key}__tolLow`));
             entry.tolHigh = parseFloat(fd.get(`metric__${m.key}__tolHigh`));
+          }
+          if (tolType === "action") {
+            entry.actionPct = parseFloat(fd.get(`metric__${m.key}__actionPct`));
+            entry.tolerancePct = parseFloat(fd.get(`metric__${m.key}__tolerancePct`));
           }
           return entry;
         });
@@ -875,6 +890,10 @@
             if (tolType === "range") {
               entry.tolLow = parseFloat(fd.get(`mm_${idx}__tolLow`));
               entry.tolHigh = parseFloat(fd.get(`mm_${idx}__tolHigh`));
+            }
+            if (tolType === "action") {
+              entry.actionPct = parseFloat(fd.get(`mm_${idx}__actionPct`));
+              entry.tolerancePct = parseFloat(fd.get(`mm_${idx}__tolerancePct`));
             }
             return entry;
           })

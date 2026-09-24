@@ -874,10 +874,13 @@
         assetType: "electrometer",
       },
     ],
-    // O Ndw, Ks e Kpol de referência NÃO ficam mais digitados aqui: vêm da
-    // medição mais recente cadastrada para a câmara escolhida acima (ver
-    // Ativos → histórico de Ndw/Ks/Kpol, e /api/dosimetry/calculate no
-    // backend, que resolve isso antes de rodar o cálculo).
+    // O Ndw NÃO fica digitado aqui: vem da medição mais recente cadastrada
+    // para a câmara escolhida acima (ver Ativos → histórico de Ndw/Ks/Kpol,
+    // e /api/dosimetry/calculate no backend, que resolve isso antes de
+    // rodar o cálculo). Ks e Kpol nunca vêm de Ativos — são sempre
+    // calculados a partir das leituras M−/M+/M2 desta própria sessão
+    // (TRS-398, eq. 3.6-3.8), e ENTÃO viram uma entrada nova no histórico
+    // da câmara automaticamente ao salvar o resultado.
     // sessionFields: o que o físico lança a cada dosimetria mensal (não
     // fica salvo na rotina — vem junto de cada resultado). type
     // "readings" = lista de réplicas separadas por vírgula (até 6, como
@@ -907,21 +910,18 @@
         key: "m_plus_readings",
         label: "Leituras M+ (polaridade invertida, nC) — separe por vírgula",
         type: "readings",
+        required: true,
       },
       {
         key: "m2_readings",
         label: "Leituras M2 (meia tensão, nC) — separe por vírgula",
         type: "readings",
+        required: true,
       },
       {
         key: "d20_readings",
         label: "Leituras D20 (20cm de profundidade, nC) — só fótons — separe por vírgula",
         type: "readings",
-      },
-      {
-        key: "measure_ks_kpol",
-        label: "Medir Ks e Kpol nesta sessão? (senão usa os valores de referência da rotina)",
-        type: "checkbox",
       },
       { key: "adjustment_made", label: "Foi feito ajuste no acelerador nesta sessão?", type: "checkbox" },
       {
@@ -935,8 +935,20 @@
       { key: "pdd_20_10", label: "PDD20,10 medido", unit: "", tolType: "info" },
       { key: "tpr_20_10", label: "TPR20,10 medido", unit: "", tolType: "info" },
       { key: "kq", label: "kQ (fator de correção da qualidade do feixe)", unit: "", tolType: "info" },
-      { key: "ks", label: "Ks (recombinação iônica) usado", unit: "", tolType: "info" },
-      { key: "kpol", label: "Kpol (polaridade) usado", unit: "", tolType: "info" },
+      { key: "ks", label: "Ks (recombinação iônica, calculado de M−/M2)", unit: "", tolType: "info" },
+      {
+        key: "ks_deviation_pct",
+        label: "Desvio do Ks vs. última medição da câmara em Ativos",
+        unit: "%",
+        tolType: "info",
+      },
+      { key: "kpol", label: "Kpol (polaridade, calculado de M−/M+)", unit: "", tolType: "info" },
+      {
+        key: "kpol_deviation_pct",
+        label: "Desvio do Kpol vs. última medição da câmara em Ativos",
+        unit: "%",
+        tolType: "info",
+      },
       { key: "dose_zref_cgy", label: "Dose absorvida em Zref", unit: "cGy", tolType: "info" },
       { key: "dose_zmax_cgy", label: "Dose absorvida em Zmax (antes de ajuste)", unit: "cGy", tolType: "info" },
       { key: "calibration_factor_cgy_um", label: "Fator de Calibração (antes de ajuste)", unit: "cGy/UM", tolType: "info" },
@@ -974,11 +986,11 @@
       },
       {
         key: "final_calibration_factor_deviation_pct",
-        label: "Desvio do Fator de Calibração final",
+        label: "Desvio do Rendimento — Dw(Zmax) vs. nominal (~100 cGy)",
         unit: "%",
-        tolType: "range",
-        tolLow: -3,
-        tolHigh: 3,
+        tolType: "action",
+        actionPct: 3,
+        tolerancePct: 5,
       },
     ],
   };

@@ -614,7 +614,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         typeInfo.hasMeasurementHistory
           ? `<div class="panel mt">
         <div class="panel-header"><h3>Histórico de Ndw / Ks / Kpol</h3></div>
-        <p class="muted small">A rotina de dosimetria TRS-398 vinculada a esta câmara usa sempre a medição mais recente desta lista.</p>
+        <p class="muted small">O Ndw usado na dosimetria TRS-398 é sempre a medição mais recente com Ndw preenchido nesta lista. Ks e Kpol são sempre calculados a partir das leituras de cada sessão (não desta lista) — mas toda sessão salva soma uma linha nova aqui automaticamente, para acompanhar a tendência ao longo do tempo.</p>
         ${assetMeasurementsTableHtml(asset, measurements, isAdmin)}
       </div>`
           : ""
@@ -683,6 +683,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
               tol: saved.tol !== undefined ? saved.tol : m.tol,
               tolLow: saved.tolLow !== undefined ? saved.tolLow : m.tolLow,
               tolHigh: saved.tolHigh !== undefined ? saved.tolHigh : m.tolHigh,
+              actionPct: saved.actionPct !== undefined ? saved.actionPct : m.actionPct,
+              tolerancePct: saved.tolerancePct !== undefined ? saved.tolerancePct : m.tolerancePct,
             };
             return `
             <tr data-metric-row="${m.key}">
@@ -712,6 +714,10 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       return `entre <input type="number" step="any" class="tol-input" name="${prefix}__tolLow" value="${esc(saved.tolLow !== undefined ? saved.tolLow : "")}" />
         e <input type="number" step="any" class="tol-input" name="${prefix}__tolHigh" value="${esc(saved.tolHigh !== undefined ? saved.tolHigh : "")}" />`;
     }
+    if (tolType === "action") {
+      return `nível de ação ± <input type="number" step="any" class="tol-input" name="${prefix}__actionPct" value="${esc(saved.actionPct !== undefined ? saved.actionPct : "")}" />%
+        · tolerância ± <input type="number" step="any" class="tol-input" name="${prefix}__tolerancePct" value="${esc(saved.tolerancePct !== undefined ? saved.tolerancePct : "")}" />%`;
+    }
     if (tolType === "bool") {
       return `<span class="muted small">aprovado/reprovado manual</span>`;
     }
@@ -734,6 +740,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       ["max", "Valor máximo aceitável"],
       ["min", "Valor mínimo aceitável"],
       ["range", "Faixa aceitável (min–max)"],
+      ["action", "Nível de ação / tolerância (%)"],
       ["bool", "Aprovado/Reprovado manual"],
     ]
       .map(([v, l]) => `<option value="${v}" ${tolType === v ? "selected" : ""}>${l}</option>`)
@@ -1054,52 +1061,60 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return m.plottable !== false;
   }
 
+  // Estado de uma métrica contra sua tolerância: "ok" | "action" | "fail",
+  // ou null quando não há o que checar (métrica informativa, ou sem valor
+  // lançado). O tipo "action" é o padrão de nível de ação/tolerância comum
+  // em CQ de radioterapia (ex.: TG-142): dentro do nível de ação (±actionPct)
+  // é "ok"; além do nível de ação mas ainda dentro da tolerância
+  // (±tolerancePct) é "action" (atenção, mas ainda aceitável); além da
+  // tolerância é "fail". Todos os outros tolTypes só têm ok/fail.
+  function evaluateMetricState(m, v) {
+    if (v === undefined || v === null || v === "") return null;
+    if (!m.tolType || m.tolType === "info") return null;
+    if (m.tolType === "bool") return v === "false" || v === false ? "fail" : "ok";
+    const num = Number(v);
+    if (Number.isNaN(num)) return null;
+    if (m.tolType === "max") return num <= Number(m.tol) ? "ok" : "fail";
+    if (m.tolType === "min") return num >= Number(m.tol) ? "ok" : "fail";
+    if (m.tolType === "range") return num >= Number(m.tolLow) && num <= Number(m.tolHigh) ? "ok" : "fail";
+    if (m.tolType === "action") {
+      const abs = Math.abs(num);
+      if (abs <= Number(m.actionPct)) return "ok";
+      if (abs <= Number(m.tolerancePct)) return "action";
+      return "fail";
+    }
+    return null;
+  }
+
   function computeResultPass(routine, result) {
     const metrics = routine.metrics || [];
     if (metrics.length === 0) return result.passOverride === undefined ? null : result.passOverride;
     let anyFail = false;
     let anyChecked = false;
     for (const m of metrics) {
-      const v = result.values[m.key];
-      if (v === undefined || v === null || v === "") continue;
-      if (m.tolType === "info") continue;
+      const state = evaluateMetricState(m, result.values[m.key]);
+      if (state === null) continue;
       anyChecked = true;
-      const num = Number(v);
-      if (m.tolType === "bool") {
-        if (v === "false" || v === false) anyFail = true;
-      } else if (m.tolType === "max") {
-        if (!(num <= Number(m.tol))) anyFail = true;
-      } else if (m.tolType === "min") {
-        if (!(num >= Number(m.tol))) anyFail = true;
-      } else if (m.tolType === "range") {
-        if (!(num >= Number(m.tolLow) && num <= Number(m.tolHigh))) anyFail = true;
-      }
+      if (state === "fail") anyFail = true;
     }
     if (!anyChecked) return result.passOverride === undefined ? null : result.passOverride;
     return !anyFail;
   }
 
-  // Mesma lógica de tolerância do computeResultPass, mas por métrica —
-  // usada para mostrar o ícone de aprovado/reprovado ao lado de cada linha
-  // no detalhe do resultado. Retorna null quando não há o que checar
-  // (métrica informativa, ou sem valor lançado) — nesse caso não se mostra
-  // ícone nenhum, só para métricas com tolerância de verdade.
+  // Idem computeResultPass, mas por métrica — usada para mostrar o ícone
+  // de aprovado/reprovado ao lado de cada linha no detalhe do resultado.
+  // "action" também conta como aprovado (dentro da tolerância), só com
+  // ícone/cor de atenção — ver metricPassIconHtml.
   function evaluateMetricPass(m, v) {
-    if (v === undefined || v === null || v === "") return null;
-    if (!m.tolType || m.tolType === "info") return null;
-    if (m.tolType === "bool") return !(v === "false" || v === false);
-    const num = Number(v);
-    if (Number.isNaN(num)) return null;
-    if (m.tolType === "max") return num <= Number(m.tol);
-    if (m.tolType === "min") return num >= Number(m.tol);
-    if (m.tolType === "range") return num >= Number(m.tolLow) && num <= Number(m.tolHigh);
-    return null;
+    const state = evaluateMetricState(m, v);
+    return state === null ? null : state !== "fail";
   }
 
   function metricPassIconHtml(m, v) {
-    const pass = evaluateMetricPass(m, v);
-    if (pass === null) return `<span class="metric-pass-icon metric-pass-none" title="Sem tolerância definida"></span>`;
-    return pass
+    const state = evaluateMetricState(m, v);
+    if (state === null) return `<span class="metric-pass-icon metric-pass-none" title="Sem tolerância definida"></span>`;
+    if (state === "action") return `<span class="metric-pass-icon metric-pass-action" title="Além do nível de ação, mas dentro da tolerância">⚠</span>`;
+    return state === "ok"
       ? `<span class="metric-pass-icon metric-pass-ok" title="Dentro da tolerância">✓</span>`
       : `<span class="metric-pass-icon metric-pass-fail" title="Fora da tolerância">✗</span>`;
   }
@@ -1165,7 +1180,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         }
         if (f.type === "readings") {
           return `<label>${esc(f.label)}
-            <input type="text" name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="readings" placeholder="ex.: 11.54, 11.55, 11.54" />
+            <input type="text" name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="readings" placeholder="ex.: 11.54, 11.55, 11.54" ${f.required ? "required" : ""} />
           </label>`;
         }
         if (f.type === "asset-select") {
@@ -1262,6 +1277,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     if (m.tolType === "max" && m.tol !== undefined && m.tol !== null) return `≤ ${m.tol}`;
     if (m.tolType === "min" && m.tol !== undefined && m.tol !== null) return `≥ ${m.tol}`;
     if (m.tolType === "range" && m.tolLow !== undefined && m.tolLow !== null) return `${m.tolLow} a ${m.tolHigh}`;
+    if (m.tolType === "action" && m.actionPct !== undefined && m.actionPct !== null) return `ação ±${m.actionPct}% · tol. ±${m.tolerancePct}%`;
     return "";
   }
 

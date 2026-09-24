@@ -368,7 +368,40 @@ def list_resultados(routine_id: Optional[str] = Query(None), _: dict = Depends(g
 @app.post("/api/resultados")
 def create_resultado(data: dict = Body(...), _: dict = Depends(get_current_user)):
     rid = db.create_result(data)
+    _maybe_log_trs398_measurement(data)
     return db.get_result(rid)
+
+
+def _maybe_log_trs398_measurement(result_data: dict):
+    """Toda vez que um resultado de dosimetria TRS-398 é salvo, o Ks/Kpol
+    calculados nesta sessão (sempre a partir das leituras M−/M+/M2 —
+    ver dosimetry_trs398.py) viram uma entrada NOVA no histórico da câmara
+    em Ativos, nunca sobrescrevendo uma medição anterior — é assim que o
+    histórico de Ks/Kpol de cada câmara fica "sempre alimentado pelas
+    vezes que ocorreram medidas dele". O Ndw não é tocado aqui (não é
+    remedido a cada sessão, só quando a câmara volta de calibração)."""
+    routine = db.get_routine(result_data.get("routineId"))
+    if not routine or routine.get("testType") != "trs398":
+        return
+    chamber_asset_id = (routine.get("params") or {}).get("chamber_asset_id")
+    if not chamber_asset_id:
+        return
+    values = result_data.get("values") or {}
+    ks_raw, kpol_raw = values.get("ks"), values.get("kpol")
+    if ks_raw in (None, "") and kpol_raw in (None, ""):
+        return
+    try:
+        db.create_asset_measurement(
+            chamber_asset_id,
+            {
+                "measuredAt": result_data.get("date") or db.now_iso()[:10],
+                "ks": float(ks_raw) if ks_raw not in (None, "") else None,
+                "kpol": float(kpol_raw) if kpol_raw not in (None, "") else None,
+                "beamLabel": f"Sessão TRS-398 — {routine.get('name')}",
+            },
+        )
+    except (TypeError, ValueError):
+        logger.exception("Falha ao registrar Ks/Kpol automaticamente no histórico do ativo %s", chamber_asset_id)
 
 
 @app.post("/api/resultados/{result_id}/approve")
@@ -547,10 +580,15 @@ async def dosimetry_calculate(
     lançados pelo físico nesta sessão — sem arquivo/DICOM nenhum, por
     isso não passa por run_analysis()/MODULES (ver dosimetry_trs398.py).
 
-    O ND,w/Ks/Kpol de referência não vêm mais digitados na rotina: a rotina
-    só guarda qual câmara de ionização (ativo) usa, e aqui a gente busca a
-    medição mais recente cadastrada em Ativos para essa câmara — histórico
-    de calibração de verdade, em vez de 3 números soltos copiados à mão."""
+    O ND,w não vem mais digitado na rotina: a rotina só guarda qual câmara
+    de ionização (ativo) usa, e aqui a gente busca a medição mais recente
+    com Ndw preenchido cadastrada em Ativos para essa câmara — histórico de
+    calibração de verdade, em vez de um número solto copiado à mão. Ks e
+    Kpol NÃO vêm de Ativos: são sempre calculados por dosimetry_trs398.py a
+    partir das leituras M−/M+/M2 desta própria sessão (TRS-398, eq.
+    3.6-3.8); aqui só buscamos a última medição conhecida da câmara para
+    servir de comparação informativa (ks_deviation_pct/kpol_deviation_pct),
+    não para entrar na conta."""
     check_api_key(x_api_key)
     params_dict = dict(payload.get("params") or {})
     session_dict = payload.get("session") or {}
@@ -560,18 +598,19 @@ async def dosimetry_calculate(
         chamber = db.get_asset(chamber_asset_id)
         if not chamber:
             raise HTTPException(status_code=422, detail="A câmara de ionização vinculada a esta rotina não foi encontrada em Ativos.")
-        latest = db.get_latest_asset_measurement(chamber_asset_id)
-        if not latest:
+        latest_ndw = db.get_latest_asset_measurement_field(chamber_asset_id, "ndw")
+        if not latest_ndw:
             raise HTTPException(
                 status_code=422,
-                detail=f"A câmara \"{chamber['name']}\" ainda não tem nenhuma medição de Ndw/Ks/Kpol cadastrada em Ativos.",
+                detail=f"A câmara \"{chamber['name']}\" ainda não tem nenhum Ndw cadastrado em Ativos.",
             )
-        if latest.get("ndw") is not None:
-            params_dict["ndw"] = latest["ndw"]
-        if latest.get("ks") is not None:
-            params_dict["reference_ks"] = latest["ks"]
-        if latest.get("kpol") is not None:
-            params_dict["reference_kpol"] = latest["kpol"]
+        params_dict["ndw"] = latest_ndw["ndw"]
+        latest_ks = db.get_latest_asset_measurement_field(chamber_asset_id, "ks")
+        if latest_ks:
+            params_dict["last_known_ks"] = latest_ks["ks"]
+        latest_kpol = db.get_latest_asset_measurement_field(chamber_asset_id, "kpol")
+        if latest_kpol:
+            params_dict["last_known_kpol"] = latest_kpol["kpol"]
 
     try:
         result = calculate_dosimetry_trs398(params_dict, session_dict)

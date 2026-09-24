@@ -570,6 +570,24 @@ def get_latest_asset_measurement(asset_id):
         return _row_to_asset_measurement(row) if row else None
 
 
+def get_latest_asset_measurement_field(asset_id, field):
+    """Última medição da câmara em que aquele campo específico foi
+    preenchido — usado porque Ndw (calibração externa, muda raramente) e
+    Ks/Kpol (calculados a cada sessão de dosimetria, ver dosimetry_trs398.py)
+    são atualizados em ritmos bem diferentes: pegar só "a linha mais
+    recente" (get_latest_asset_measurement) erraria o Ndw sempre que a
+    entrada mais nova for um lançamento automático de Ks/Kpol sem Ndw."""
+    if field not in ("ndw", "ks", "kpol"):
+        raise ValueError(f"Campo inválido: {field}")
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT * FROM asset_measurements WHERE asset_id = ? AND {field} IS NOT NULL "
+            "ORDER BY measured_at DESC, created_at DESC LIMIT 1",
+            (asset_id,),
+        ).fetchone()
+        return _row_to_asset_measurement(row) if row else None
+
+
 def create_asset_measurement(asset_id, data):
     mid = new_id()
     with get_conn() as conn:

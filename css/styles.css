@@ -209,6 +209,7 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 .metric-pass-cell { width: 20px; padding-left: 2px !important; padding-right: 2px !important; text-align: center !important; }
 .metric-pass-icon { display: inline-block; width: 14px; font-size: 13px; font-weight: 700; line-height: 1; text-align: center; }
 .metric-pass-icon.metric-pass-ok { color: var(--success); }
+.metric-pass-icon.metric-pass-action { color: var(--warning); }
 .metric-pass-icon.metric-pass-fail { color: var(--danger); }
 .metric-pass-icon.metric-pass-none { color: transparent; }
 
