@@ -810,6 +810,11 @@
         }
       });
 
+      if (data.metrics.dicom_study_date) {
+        const dateInput = form.querySelector('input[name="date"]');
+        if (dateInput) dateInput.value = data.metrics.dicom_study_date;
+      }
+
       document.getElementById("raw-metrics-json-field").value = JSON.stringify(data.metrics);
       document.getElementById("source-files-json-field").value = JSON.stringify(files.map((f) => f.name));
       const rawJsonEl = document.getElementById("pylinac-raw-json");

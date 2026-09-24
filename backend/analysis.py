@@ -51,6 +51,26 @@ def flatten(obj, prefix="", exclude_prefixes=()):
 
 
 FIELD_NAME_TAG = (0x0008, 0x103E)  # SeriesDescription
+DICOM_STUDY_DATE_TAG = (0x0008, 0x0020)  # StudyDate, formato AAAAMMDD
+
+
+def extract_dicom_study_date(filepath):
+    """Lê a tag DICOM (0008,0020) do primeiro arquivo do conjunto enviado e
+    devolve no formato ISO (AAAA-MM-DD). Usada como a data do teste de
+    controle de qualidade em TODO teste baseado em imagem DICOM (no lugar
+    da data em que o físico efetivamente rodou a análise no app) — ver uso
+    em run_analysis(), abaixo, e no observador de pastas (watcher.py)."""
+    try:
+        ds = pydicom.dcmread(str(filepath), stop_before_pixels=True, force=True)
+        elem = ds.get(DICOM_STUDY_DATE_TAG, None)
+        if elem and str(elem.value):
+            raw = str(elem.value)
+            if len(raw) == 8:
+                return {"dicom_study_date": f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"}
+    except Exception:
+        pass
+    return {}
+
 
 # Convenção de nomenclatura do serviço: "...PFG<gantry>C<colimador>"
 # (ex.: "...+PFG0C270" -> gantry 0, colimador 270). Essa string é a fonte
@@ -392,10 +412,18 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
 
         postprocess = config.get("postprocess")
         if postprocess:
-            flat = postprocess(flat)
+            flat = postprocess(flat, params_dict)
 
         if config.get("extract_dicom_angles") and len(saved_paths) >= 1:
             flat.update(extract_dicom_angles(saved_paths[0]))
+        elif len(saved_paths) >= 1:
+            # Módulos que não usam extract_dicom_angles (hoje só o
+            # Winston-Lutz, que extrai os dados por imagem separadamente)
+            # ainda assim precisam de dicom_study_date — é a data usada como
+            # data do teste de controle de qualidade em qualquer teste
+            # baseado em imagem DICOM (ver runPylinacAnalysis no app.js e
+            # watcher.py).
+            flat.update(extract_dicom_study_date(saved_paths[0]))
 
         if config.get("extract_wl_image_details"):
             flat["_wl_image_details"] = render_wl_images(instance, params_dict)

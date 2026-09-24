@@ -16,8 +16,8 @@ Cada entrada:
                      - series:   conjunto de cortes DICOM (CT/CBCT) ou um .zip
     param_map:      dict {chave_do_formulário: nome_do_kwarg_em_analyze}
     param_cast:     dict opcional {chave_do_formulário: função de conversão}
-    postprocess:    função opcional (flat_dict) -> flat_dict, para ajustes finos
-                     (ex.: valor absoluto em campos de simetria)
+    postprocess:    função opcional (flat_dict, params_dict) -> flat_dict, para
+                     ajustes finos (ex.: valor absoluto em campos de simetria)
 """
 
 import pylinac
@@ -26,13 +26,27 @@ import wl_custom
 
 
 def _abs_fields(*keys):
-    def _fn(flat):
+    def _fn(flat, params_dict=None):
         for k in keys:
             if k in flat and flat[k] is not None:
                 try:
                     flat[k] = abs(float(flat[k]))
                 except (TypeError, ValueError):
                     pass
+        return flat
+
+    return _fn
+
+
+def _compose(*fns):
+    """postprocess: encadeia várias funções de postprocess (flat, params_dict)
+    -> flat_dict, aplicadas em sequência — usado quando um módulo precisa de
+    mais de um ajuste (ex.: IsoAlign combina o erro máximo Luz×Rad com o
+    desvio do campo medido em relação ao nominal configurado na rotina)."""
+
+    def _fn(flat, params_dict=None):
+        for fn in fns:
+            flat = fn(flat, params_dict)
         return flat
 
     return _fn
@@ -70,13 +84,51 @@ def _max_abs_field(target_key, *source_keys):
     campos indicados — ex.: o "erro máximo Luz × Rad" do IsoAlign, que é
     literalmente max(|desvio X|, |desvio Y|)."""
 
-    def _fn(flat):
+    def _fn(flat, params_dict=None):
         values = [abs(float(flat[k])) for k in source_keys if flat.get(k) is not None]
         if values:
             flat[target_key] = max(values)
         return flat
 
     return _fn
+
+
+def _isoalign_nominal_deviation(flat, params_dict=None):
+    """postprocess: usa o tamanho nominal de campo configurado na rotina
+    (X1/X2/Y1/Y2, definidos pelo físico ao criar/editar a rotina — JAWS ou
+    MLC, simétrico ou assimétrico) para calcular o tamanho nominal total de
+    campo (X = X1+X2, Y = Y1+Y2) e o desvio do campo REALMENTE medido pelo
+    pylinac em relação a esse nominal — ou seja, se o campo de radiação saiu
+    do tamanho configurado no colimador, não só se luz e radiação coincidem
+    entre si (isso já é o field_bb_offset_*). Só roda quando os 4 campos
+    nominais foram preenchidos na rotina; caso contrário não adiciona nada."""
+    params_dict = params_dict or {}
+
+    def _num(key):
+        raw = params_dict.get(key)
+        if raw in (None, ""):
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    x1, x2 = _num("nominal_x1_mm"), _num("nominal_x2_mm")
+    y1, y2 = _num("nominal_y1_mm"), _num("nominal_y2_mm")
+
+    if x1 is not None and x2 is not None:
+        nominal_x = x1 + x2
+        flat["nominal_field_size_x_mm"] = nominal_x
+        if flat.get("field_size_x_mm") is not None:
+            flat["field_size_x_deviation_mm"] = float(flat["field_size_x_mm"]) - nominal_x
+
+    if y1 is not None and y2 is not None:
+        nominal_y = y1 + y2
+        flat["nominal_field_size_y_mm"] = nominal_y
+        if flat.get("field_size_y_mm") is not None:
+            flat["field_size_y_deviation_mm"] = float(flat["field_size_y_mm"]) - nominal_y
+
+    return flat
 
 
 def _crop_image_hook(instance, params_dict):
@@ -313,9 +365,14 @@ MODULES = {
             "kernel_size_multiplier": _float_cast,
         },
         # O "erro máximo Luz×Rad" (o número que mais importa nesse teste)
-        # não vem pronto do pylinac — é max(|desvio X|, |desvio Y|) do
-        # campo em relação à BB, calculado à parte no fluxo do físico.
-        "postprocess": _max_abs_field("max_light_rad_error_mm", "field_bb_offset_x_mm", "field_bb_offset_y_mm"),
+        # não vem pronto do pylinac — é max(|desvio X|, |desvio Y|) do campo
+        # em relação à BB — e o desvio do campo medido em relação ao
+        # tamanho nominal configurado na rotina (X1/X2/Y1/Y2) também não;
+        # ambos calculados à parte, replicando o fluxo do físico.
+        "postprocess": _compose(
+            _isoalign_nominal_deviation,
+            _max_abs_field("max_light_rad_error_mm", "field_bb_offset_x_mm", "field_bb_offset_y_mm"),
+        ),
     },
     "catphan": {
         # classe real escolhida em tempo de execução via params["phantom_model"]

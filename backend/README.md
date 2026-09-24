@@ -130,6 +130,17 @@ do resultado): TG-51/TRS-398, Winston-Lutz multi-alvo, DLG, ACR CT/MRI e
 análise de log de trajetória. O app explica isso na tela de cada um desses
 testes.
 
+### Data do teste = data de aquisição do DICOM
+
+Em todo teste baseado em imagem DICOM, a data do teste de controle de
+qualidade é preenchida automaticamente com a tag DICOM `(0008,0020)`
+(Study Date) do arquivo enviado — não a data em que o físico rodou a
+análise no app. Isso evita que um teste analisado dias depois da
+aquisição registre a data errada no histórico/gráfico de tendências.
+O campo continua editável manualmente antes de salvar, caso seja
+necessário corrigir. O mesmo vale para a análise automática via pasta
+observada (ver abaixo).
+
 ### Picket Fence e Starshot: imagem analisada
 
 No Picket Fence, o detalhe do resultado mostra a imagem com os
@@ -200,18 +211,26 @@ usado historicamente pelo físico fora do app.
 
 Parâmetros configuráveis na rotina: FWXM para detecção do campo
 (padrão 50%), limiar de borda da BB em mm (padrão 3mm), multiplicador
-do kernel de detecção de BB, inverter imagem, e o recorte de borda da
+do kernel de detecção de BB, inverter imagem, o recorte de borda da
 imagem em pixels antes de analisar (padrão 100px — remove marcas de
-gráticula/artefatos de borda que podem atrapalhar a detecção).
+gráticula/artefatos de borda que podem atrapalhar a detecção), se a
+colimação testada é por JAWS ou por MLC, se o campo nominal é
+simétrico ou assimétrico, e o **tamanho nominal de campo por
+colimador** — X1, X2, Y1 e Y2 (em mm), definidos pelo físico conforme
+o que foi configurado no equipamento para o teste.
 
-Métricas devolvidas: tamanho de campo X/Y, desvio campo→EPID X/Y,
-desvio campo→BB X/Y (esse é o "Luz × Rad" propriamente dito — quanto o
-campo de radiação se desviou de onde o físico marcou o campo de luz), e
-o **erro máximo Luz × Rad**, calculado como `max(|desvio X|, |desvio
-Y|)` — o número mais importante do teste, mas que o pylinac não devolve
-pronto (é derivado no backend, `modules_config.py`). O detalhe do
-resultado também mostra a imagem analisada, com o centro do campo
-(vermelho), o centro do EPID (azul) e o centroide da BB (verde)
+Métricas devolvidas: tamanho de campo medido X/Y, tamanho de campo
+nominal X/Y (soma X1+X2 e Y1+Y2, calculada a partir do que foi
+configurado na rotina), o **desvio do campo medido em relação ao
+nominal** (X/Y — mostra se o campo de radiação saiu do tamanho
+configurado no colimador), desvio campo→EPID X/Y, desvio campo→BB X/Y
+(esse é o "Luz × Rad" propriamente dito — quanto o campo de radiação
+se desviou de onde o físico marcou o campo de luz), e o **erro máximo
+Luz × Rad**, calculado como `max(|desvio X|, |desvio Y|)` — o número
+mais importante do teste, mas que o pylinac não devolve pronto (esse e
+o desvio nominal são derivados no backend, `modules_config.py`). O
+detalhe do resultado também mostra a imagem analisada, com o centro do
+campo (vermelho), o centro do EPID (azul) e o centroide da BB (verde)
 marcados, igual ao relatório em PDF que o pylinac gera.
 
 ## Pasta observada — análise 100% automática
