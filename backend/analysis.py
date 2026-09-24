@@ -293,17 +293,57 @@ def render_wl_images(instance, params_dict=None, figsize=(5, 5), dpi=90):
     return out
 
 
-def _draw_isoalign_field_edge(ax, instance):
+def _isoalign_line_width(params_dict, key, default):
+    raw = (params_dict or {}).get(key)
+    if raw in (None, ""):
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _set_isoalign_marker_line_widths(ax, params_dict):
+    """Ajusta a espessura das linhas que o próprio plot_analyzed_image() do
+    pylinac já desenha (BB Centroid em verde, EPID Center em azul, Field
+    Center em vermelho) — o pylinac não expõe linewidth como parâmetro
+    dessas linhas, então em vez de reimplementar o desenho, encontramos os
+    Line2D já criados (cada grupo é um par: uma linha horizontal com o
+    "label" do grupo, mais a vertical companheira logo em seguida, sem
+    marcador — os pontos de detecção da BB, que aparecem antes no mesmo
+    eixo, têm marcador e ficam de fora) e mudamos a linewidth de cada um
+    diretamente."""
+    color_width = {
+        "g": _isoalign_line_width(params_dict, "bb_line_width", 1.5),
+        "b": _isoalign_line_width(params_dict, "epid_line_width", 1.5),
+        "red": _isoalign_line_width(params_dict, "field_line_width", 1.5),
+    }
+    try:
+        for line in ax.get_lines():
+            if line.get_marker() not in (None, "None", ""):
+                continue  # pontos de detecção da BB, não as linhas do centro
+            width = color_width.get(line.get_color())
+            if width is not None:
+                line.set_linewidth(width)
+    except Exception:
+        logger.exception("Falha ao ajustar a espessura das linhas do IsoAlign")
+
+
+def _draw_isoalign_field_edge(ax, instance, params_dict=None):
     """Overlay só para visualização: desenha um retângulo tracejado nas
-    bordas de campo detectadas pelo FWXM. Não reimplementa nada da
-    detecção — usa os mesmos valores que o pylinac já calculou e usou para
-    o resultado (instance.field_center, field_width_x/y, em
-    StandardImagingFC2._find_field_info): o centro ± metade da largura de
-    campo em cada eixo, convertido de mm para pixel via image.dpmm. Assim
-    o físico vê exatamente onde a borda do FWXM está caindo na imagem, sem
-    risco de a linha desenhada não bater com o número do resultado (ao
-    contrário do Winston-Lutz, aqui não há limiar configurável nem
-    segmentação 2D para refazer — é literalmente o valor já usado)."""
+    bordas de campo detectadas pelo FWXM, e ajusta a espessura das linhas
+    de BB/EPID/Field já desenhadas pelo pylinac (ver
+    _set_isoalign_marker_line_widths) — tudo configurável pela rotina. Não
+    reimplementa nada da detecção do campo — usa os mesmos valores que o
+    pylinac já calculou e usou para o resultado (instance.field_center,
+    field_width_x/y, em StandardImagingFC2._find_field_info): o centro ±
+    metade da largura de campo em cada eixo, convertido de mm para pixel
+    via image.dpmm. Assim o físico vê exatamente onde a borda do FWXM está
+    caindo na imagem, sem risco de a linha desenhada não bater com o
+    número do resultado (ao contrário do Winston-Lutz, aqui não há limiar
+    configurável nem segmentação 2D para refazer — é literalmente o valor
+    já usado)."""
+    _set_isoalign_marker_line_widths(ax, params_dict)
     try:
         dpmm = instance.image.dpmm
         cx, cy = instance.field_center.x, instance.field_center.y
@@ -311,13 +351,14 @@ def _draw_isoalign_field_edge(ax, instance):
         half_h = (instance.field_width_y / 2) * dpmm
         xs = [cx - half_w, cx + half_w, cx + half_w, cx - half_w, cx - half_w]
         ys = [cy - half_h, cy - half_h, cy + half_h, cy + half_h, cy - half_h]
-        ax.plot(xs, ys, color="yellow", linewidth=1.3, linestyle="--", label="Borda de campo (FWXM)")
+        edge_width = _isoalign_line_width(params_dict, "field_edge_line_width", 0.6)
+        ax.plot(xs, ys, color="yellow", linewidth=edge_width, linestyle="--", label="Borda de campo (FWXM)")
         ax.legend()
     except Exception:
         logger.exception("Falha ao desenhar a borda de campo FWXM (IsoAlign)")
 
 
-def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110, overlay_hook=None):
+def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110, overlay_hook=None, params_dict=None):
     """Gera a mesma figura que o pylinac usa no relatório (imagem 2D com as
     marcações da análise, ex.: para o Starshot: as linhas ajustadas de cada
     exposição e o círculo mínimo — 'wobble' — que elas formam) e devolve
@@ -327,10 +368,10 @@ def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110, overlay_
     backend "Agg" (ver main.py) — sem isso, tentar desenhar trava/lança erro
     num processo de servidor sem tela.
 
-    overlay_hook: função opcional (ax, instance) -> None, chamada depois do
-    plot_analyzed_image() do próprio pylinac, para desenhar por cima algo
-    que o módulo não desenha nativamente (ex.: a borda de campo do FWXM no
-    IsoAlign — ver _draw_isoalign_field_edge)."""
+    overlay_hook: função opcional (ax, instance, params_dict) -> None,
+    chamada depois do plot_analyzed_image() do próprio pylinac, para
+    desenhar por cima algo que o módulo não desenha nativamente (ex.: a
+    borda de campo do FWXM no IsoAlign — ver _draw_isoalign_field_edge)."""
     import matplotlib.pyplot as plt
 
     fig = None
@@ -348,7 +389,7 @@ def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110, overlay_
             instance.plot_analyzed_image(show=False)
         fig = plt.gcf()
         if overlay_hook:
-            overlay_hook(fig.axes[0], instance)
+            overlay_hook(fig.axes[0], instance, params_dict)
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
         buf.seek(0)
@@ -461,7 +502,9 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
 
         if config.get("render_analyzed_image"):
             overlay_hook = _draw_isoalign_field_edge if config.get("draw_fwxm_field_edge") else None
-            flat["_analyzed_image_png_b64"] = render_analyzed_image_png_b64(instance, overlay_hook=overlay_hook)
+            flat["_analyzed_image_png_b64"] = render_analyzed_image_png_b64(
+                instance, overlay_hook=overlay_hook, params_dict=params_dict
+            )
 
         warnings_list = []
         if isinstance(results_dict, dict) and results_dict.get("warnings"):

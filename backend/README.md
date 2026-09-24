@@ -244,6 +244,16 @@ desenhado direto a partir de `field_center`/`field_width_x`/
 em `analysis.py`) — sem reimplementar nada da detecção, então a linha
 desenhada nunca pode divergir do número do resultado.
 
+A espessura de cada linha (BB, EPID, Field e Borda de campo) é
+configurável na rotina, de forma independente para cada uma — útil
+para destacar uma linha específica num monitor menor, ou para deixar o
+gráfico mais limpo. As três primeiras são desenhadas pelo próprio
+pylinac (sem parâmetro de espessura na API dele), então o app ajusta a
+espessura dos `Line2D` já desenhados por cor depois do
+`plot_analyzed_image()` (`_set_isoalign_marker_line_widths` em
+`analysis.py`); a borda de campo é desenhada pelo app, então a
+espessura é passada direto.
+
 ## Pasta observada — análise 100% automática
 
 Para os testes com upload de arquivo, cada rotina pode ter uma ou mais
