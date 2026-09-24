@@ -212,6 +212,8 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 .metric-pass-icon.metric-pass-fail { color: var(--danger); }
 .metric-pass-icon.metric-pass-none { color: transparent; }
 
+.picket-spacing-flag { color: var(--danger); font-weight: 700; }
+
 .plain-list { margin: 0; padding-left: 18px; }
 .plain-list li { margin-bottom: 6px; }
 

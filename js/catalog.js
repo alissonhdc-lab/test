@@ -84,6 +84,14 @@
         { key: "action_tolerance_mm", label: "Nível de ação (opcional)", type: "number", default: "", unit: "mm", step: 0.05 },
         { key: "crop_mm", label: "Corte nas bordas da imagem (crop)", type: "number", default: 3, unit: "mm", step: 1 },
         { key: "num_pickets", label: "Número de pickets (opcional, auto se vazio)", type: "number", default: "", step: 1 },
+        {
+          key: "picket_spacing_mm",
+          label: "Espaçamento nominal entre pickets (opcional, auto se vazio)",
+          type: "number",
+          default: "",
+          unit: "mm",
+          step: 1,
+        },
         { key: "invert", label: "Inverter imagem", type: "checkbox", default: false },
       ],
       metrics: [
@@ -214,6 +222,11 @@
       applicableTypes: ["linac"],
       description:
         "Verifica a coincidência entre o campo luminoso (posição das esferas/BBs marcadas manualmente com o campo de luz) e o campo de radiação real, usando o fantoma PTW Iso-Align.",
+      // O IsoAlign é feito com o fantoma parado (não repetido em vários
+      // ângulos de gantry, como picket fence/starshot) — o ângulo de gantry
+      // lido do DICOM não varia de forma relevante entre resultados, então
+      // o filtro por Gantry na tela da rotina não faz sentido aqui.
+      excludeGantryFilter: true,
       requiresFiles: true,
       fileMode: "single",
       fileAccept: ".dcm",
@@ -282,10 +295,10 @@
       metrics: [
         { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
         { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
-        { key: "field_size_x_mm", label: "Tamanho de campo medido (X / crossplane)", unit: "mm", tolType: "info" },
-        { key: "field_size_y_mm", label: "Tamanho de campo medido (Y / inplane)", unit: "mm", tolType: "info" },
-        { key: "nominal_field_size_x_mm", label: "Tamanho de campo nominal (X = X1+X2)", unit: "mm", tolType: "info" },
-        { key: "nominal_field_size_y_mm", label: "Tamanho de campo nominal (Y = Y1+Y2)", unit: "mm", tolType: "info" },
+        { key: "field_size_x_mm", label: "Tamanho de campo medido (X / crossplane)", unit: "mm", tolType: "info", plottable: false },
+        { key: "field_size_y_mm", label: "Tamanho de campo medido (Y / inplane)", unit: "mm", tolType: "info", plottable: false },
+        { key: "nominal_field_size_x_mm", label: "Tamanho de campo nominal (X = X1+X2)", unit: "mm", tolType: "info", plottable: false },
+        { key: "nominal_field_size_y_mm", label: "Tamanho de campo nominal (Y = Y1+Y2)", unit: "mm", tolType: "info", plottable: false },
         {
           key: "field_size_x_deviation_mm",
           label: "Desvio campo medido × nominal (X)",
@@ -302,8 +315,8 @@
           tolLow: -2.0,
           tolHigh: 2.0,
         },
-        { key: "field_epid_offset_x_mm", label: "Desvio campo → centro do EPID (X)", unit: "mm", tolType: "info" },
-        { key: "field_epid_offset_y_mm", label: "Desvio campo → centro do EPID (Y)", unit: "mm", tolType: "info" },
+        { key: "field_epid_offset_x_mm", label: "Desvio campo → centro do EPID (X)", unit: "mm", tolType: "info", plottable: false },
+        { key: "field_epid_offset_y_mm", label: "Desvio campo → centro do EPID (Y)", unit: "mm", tolType: "info", plottable: false },
         {
           key: "field_bb_offset_x_mm",
           label: "Desvio campo → BB / Luz×Rad (X)",

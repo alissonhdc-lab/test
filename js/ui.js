@@ -605,7 +605,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
 
       ${isAdmin && module && module.requiresFiles ? watchFolderPanelHtml(routine, watchFolders) : ""}
 
-      ${allResults.length > 0 ? resultFiltersHtml(filters || defaultFilters(), filterOptions || {}) : ""}
+      ${allResults.length > 0 ? resultFiltersHtml(filters || defaultFilters(), filterOptions || {}, module) : ""}
 
       <div class="panel">
         <div class="panel-header"><h3>Tendência de resultados</h3></div>
@@ -636,8 +636,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return `<button type="button" class="filter-chip ${active ? "active" : ""}" data-action="toggle-filter" data-filter-type="${esc(type)}" data-filter-value="${esc(value)}">${esc(label)}</button>`;
   }
 
-  function resultFiltersHtml(filters, filterOptions) {
-    const gantryOptions = filterOptions.gantryOptions || [];
+  function resultFiltersHtml(filters, filterOptions, module) {
+    const gantryOptions = module && module.excludeGantryFilter ? [] : filterOptions.gantryOptions || [];
     const collimatorOptions = filterOptions.collimatorOptions || [];
     const hasAnyActive = filters.gantry.size > 0 || filters.collimator.size > 0 || filters.status.size > 0 || filters.dateRange !== "all";
 
@@ -926,6 +926,57 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return Array.isArray(details) && details.length > 0 ? details : null;
   }
 
+  function picketSpacingDetails(routine, result) {
+    if (routine.moduleId !== "picketfence") return null;
+    const details = result.rawMetrics && result.rawMetrics._picket_spacing_details;
+    return Array.isArray(details) && details.length > 0 ? details : null;
+  }
+
+  // Espaçamento medido entre cada picket e o anterior (distância ao CAX de
+  // um menos a do outro), comparado com a média entre todos os pickets —
+  // e, se o físico configurou um espaçamento nominal na rotina, também com
+  // esse nominal. A tolerância de posicionamento já configurada na rotina
+  // (tolerance_mm) é reaproveitada só para destacar visualmente desvios
+  // grandes — não é uma aprovação/reprovação formal do teste, só um alerta
+  // didático para o físico notar qual picket está com espaçamento fora do
+  // padrão dos demais.
+  function picketSpacingTableHtml(details, routine) {
+    const hasNominal = details.some((d) => d.deviation_from_nominal_mm !== undefined && d.deviation_from_nominal_mm !== null);
+    const tolRaw = routine.params && routine.params.tolerance_mm;
+    const tol = tolRaw !== undefined && tolRaw !== null && tolRaw !== "" ? Number(tolRaw) : null;
+    const devCell = (dev) => {
+      if (dev === undefined || dev === null) return "<td>—</td>";
+      const flagged = tol !== null && !Number.isNaN(tol) && Math.abs(dev) > tol;
+      return `<td class="${flagged ? "picket-spacing-flag" : ""}">${fixDecimals(dev, 2)} mm</td>`;
+    };
+    const rows = details
+      .map(
+        (d) => `<tr>
+          <td>${esc(d.picket_label)}</td>
+          <td>${fixDecimals(d.spacing_mm, 2)} mm</td>
+          ${devCell(d.deviation_from_mean_mm)}
+          ${hasNominal ? devCell(d.deviation_from_nominal_mm) : ""}
+        </tr>`
+      )
+      .join("");
+    return `
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th>Picket</th>
+            <th>Espaçamento medido (até o anterior)</th>
+            <th>Desvio da média</th>
+            ${hasNominal ? "<th>Desvio do nominal configurado</th>" : ""}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="muted small">
+        Espaçamento entre cada picket e o anterior, calculado pela distância de cada um ao eixo central (CAX).
+        ${tol !== null && !Number.isNaN(tol) ? `Valores destacados excedem a tolerância de posicionamento da rotina (±${fixDecimals(tol, 2)}mm) — não é uma aprovação formal, só um alerta para identificar qual picket está fora do padrão dos demais.` : ""}
+      </p>`;
+  }
+
   function analyzedImagePngB64(result) {
     const b64 = result.rawMetrics && result.rawMetrics._analyzed_image_png_b64;
     return typeof b64 === "string" && b64.length > 0 ? b64 : null;
@@ -950,6 +1001,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       })
       .join("");
     const wlDetails = winstonLutzImageDetails(routine, result);
+    const picketSpacing = picketSpacingDetails(routine, result);
     const analyzedImage = analyzedImagePngB64(result);
     return `
       <div class="result-detail">
@@ -970,6 +1022,12 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           wlDetails
             ? `<h4 class="mt">Detalhe por imagem</h4>
                <div id="wl-image-panel" class="panel-inset"></div>`
+            : ""
+        }
+        ${
+          picketSpacing
+            ? `<h4 class="mt">Espaçamento entre pickets</h4>
+               <div class="panel-inset">${picketSpacingTableHtml(picketSpacing, routine)}</div>`
             : ""
         }
         ${result.notes ? `<p><b>Observações:</b> ${esc(result.notes)}</p>` : ""}

@@ -130,13 +130,22 @@
     const pts = points
       .filter((p) => p.axis === axis && typeof p[angleField] === "number" && typeof p.cax2bbDistanceMm === "number")
       .sort((a, b) => a[angleField] - b[angleField]);
-    if (pts.length === 0) return;
+    // A imagem de referência (axis "Reference", tipicamente gantry/colimador/
+    // mesa a 0°) não entra na varredura angular de nenhum eixo específico,
+    // mas ainda tem um ângulo real registrado em cada eixo (gantry_angle,
+    // collimator_angle, couch_angle) — então mostramos ela também em cada
+    // gráfico polar, como um ponto à parte (cor cinza, sem entrar na linha
+    // de tendência do eixo), para servir de âncora visual de comparação.
+    const referencePts = points.filter(
+      (p) => p.axis === "Reference" && typeof p[angleField] === "number" && typeof p.cax2bbDistanceMm === "number"
+    );
+    if (pts.length === 0 && referencePts.length === 0) return;
 
     const size = 220;
     const cx = size / 2;
     const cy = size / 2;
     const radiusLimit = size / 2 - 26;
-    const maxErr = Math.max(...pts.map((p) => p.cax2bbDistanceMm), 0.3) * 1.2;
+    const maxErr = Math.max(...pts.concat(referencePts).map((p) => p.cax2bbDistanceMm), 0.3) * 1.2;
     const scale = radiusLimit / maxErr;
 
     const wrap = document.createElement("div");
@@ -177,6 +186,25 @@
       const dot = el("circle", { cx: x, cy: y, r: 4, class: "wl-point", fill: axisColor(axis) });
       const t = el("title", {});
       t.textContent = `${axisLabel(axis)} ${fmt(p[angleField], 0)}° — Erro CAX→BB: ${fmt(p.cax2bbDistanceMm, 2)} mm`;
+      dot.appendChild(t);
+      svg.appendChild(dot);
+    });
+
+    // Ponto de referência: desenhado por cima, com contorno próprio, para
+    // se destacar dos pontos do eixo mesmo quando cai perto de 0°.
+    referencePts.forEach((p) => {
+      const { x, y } = polarToXY(cx, cy, p[angleField], p.cax2bbDistanceMm * scale);
+      const dot = el("circle", {
+        cx: x,
+        cy: y,
+        r: 5,
+        class: "wl-point wl-point-reference",
+        fill: axisColor("Reference"),
+        stroke: "#111827",
+        "stroke-width": 1.2,
+      });
+      const t = el("title", {});
+      t.textContent = `Referência — ${axisLabel(axis)} ${fmt(p[angleField], 0)}° — Erro CAX→BB: ${fmt(p.cax2bbDistanceMm, 2)} mm`;
       dot.appendChild(t);
       svg.appendChild(dot);
     });

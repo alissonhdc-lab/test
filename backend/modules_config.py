@@ -142,6 +142,29 @@ def _crop_image_hook(instance, params_dict):
         instance.image.crop(pixels=crop_px)
 
 
+def _picket_spacing_mm_to_px_hook(instance, params_dict):
+    """pre_analyze_hook: o pylinac só aceita o espaçamento nominal entre
+    pickets (picket_spacing, em analyze()) em PIXELS, mas pedir isso ao
+    físico na rotina não faz sentido — ele pensa em mm. Aqui convertemos
+    o valor em mm configurado na rotina (picket_spacing_mm) para pixels
+    usando o dpmm da imagem já carregada (instance.image, já recortada se
+    crop_mm foi configurado) e gravamos de volta em params_dict sob
+    "picket_spacing_px", que o param_map abaixo mapeia para o kwarg real
+    de analyze(). params_dict é o mesmo dict usado depois para montar os
+    kwargs de analyze() (mutado aqui em vez de retornado, seguindo o
+    mesmo padrão dos outros pre_analyze_hook)."""
+    if params_dict is None:
+        return
+    raw = params_dict.get("picket_spacing_mm")
+    if raw in (None, ""):
+        return
+    try:
+        mm = float(raw)
+    except (TypeError, ValueError):
+        return
+    params_dict["picket_spacing_px"] = mm * instance.image.dpmm
+
+
 MODULES = {
     "picketfence": {
         "cls": pylinac.PicketFence,
@@ -150,18 +173,28 @@ MODULES = {
         # (tags padrão do RT Image) e inclui nas métricas retornadas, já que
         # o picket fence normalmente é repetido em vários ângulos de gantry.
         "extract_dicom_angles": True,
+        # Espaçamento nominal entre pickets, configurável pelo administrador
+        # na rotina (em mm — convertido para pixels pelo hook acima, que é
+        # o que o pylinac espera). Além de ajudar a detecção do pylinac
+        # (parâmetro picket_spacing de analyze()), esse mesmo valor nominal
+        # é usado como referência para o desvio por picket (ver
+        # extract_picket_spacing_details em analysis.py).
+        "pre_analyze_hook": _picket_spacing_mm_to_px_hook,
+        "extract_picket_spacing_details": True,
         "param_map": {
             "orientation": "orientation",
             "tolerance_mm": "tolerance",
             "action_tolerance_mm": "action_tolerance",
             "num_pickets": "num_pickets",
             "invert": "invert",
+            "picket_spacing_px": "picket_spacing",
         },
         "param_cast": {
             "tolerance_mm": _float_cast,
             "action_tolerance_mm": _float_cast,
             "num_pickets": _int_cast,
             "invert": _bool_cast,
+            "picket_spacing_px": _float_cast,
         },
         # mlc e crop_mm são passados na construção do objeto (não em analyze()).
         # Escolher o modelo de MLC certo é essencial: o pylinac assume "Millennium"

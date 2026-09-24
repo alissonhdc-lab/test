@@ -115,6 +115,51 @@ def extract_dicom_angles(filepath):
     return out
 
 
+def extract_picket_spacing_details(results_dict, params_dict=None):
+    """Monta, para cada picket (exceto o primeiro, que não tem um anterior
+    para medir espaçamento), o espaçamento medido até o picket anterior e
+    o desvio em relação à média — e, se o físico configurou um espaçamento
+    nominal na rotina (picket_spacing_mm), também o desvio em relação a
+    esse nominal. Usa offsets_from_cax_mm, que o próprio PFResult do
+    pylinac já calcula (distância de cada picket ao CAX, em mm) — não
+    reimplementa nada da detecção, só a subtração entre pickets
+    consecutivos (ordenados pela posição) e a comparação com a média
+    (mean_picket_spacing_mm, também já calculada pelo pylinac).
+
+    results_dict é o dict ainda NÃO achatado (resultado de
+    results_data().model_dump()) — precisa ser antes do flatten() porque
+    offsets_from_cax_mm é uma lista que pode ter mais de 8 pickets, e o
+    flatten() descarta listas longas (só achata listas curtas de
+    escalares)."""
+    offsets = results_dict.get("offsets_from_cax_mm") if isinstance(results_dict, dict) else None
+    if not offsets or len(offsets) < 2:
+        return None
+
+    mean_spacing = results_dict.get("mean_picket_spacing_mm")
+    sorted_offsets = sorted(float(o) for o in offsets)
+
+    nominal = None
+    raw_nominal = (params_dict or {}).get("picket_spacing_mm")
+    if raw_nominal not in (None, ""):
+        try:
+            nominal = float(raw_nominal)
+        except (TypeError, ValueError):
+            nominal = None
+
+    rows = []
+    for i in range(len(sorted_offsets) - 1):
+        spacing = abs(sorted_offsets[i + 1] - sorted_offsets[i])
+        row = {
+            "picket_label": f"Picket {i + 2}",
+            "spacing_mm": spacing,
+            "deviation_from_mean_mm": (spacing - float(mean_spacing)) if mean_spacing is not None else None,
+        }
+        if nominal is not None:
+            row["deviation_from_nominal_mm"] = spacing - nominal
+        rows.append(row)
+    return rows
+
+
 def rename_files_by_series_description(paths):
     """Renomeia cada arquivo (no mesmo diretório) para o nome derivado da tag
     DICOM SeriesDescription (0008,103E): a parte após " + ", quando presente,
@@ -499,6 +544,11 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
 
         if config.get("extract_wl_image_details"):
             flat["_wl_image_details"] = render_wl_images(instance, params_dict)
+
+        if config.get("extract_picket_spacing_details"):
+            details = extract_picket_spacing_details(results_dict, params_dict)
+            if details:
+                flat["_picket_spacing_details"] = details
 
         if config.get("render_analyzed_image"):
             overlay_hook = _draw_isoalign_field_edge if config.get("draw_fwxm_field_edge") else None

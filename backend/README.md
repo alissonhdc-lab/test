@@ -149,6 +149,19 @@ um gráfico de erro médio (com barra de desvio) por lâmina ao lado — para
 identificar visualmente quais lâminas tiveram desvio maior, sem precisar
 adivinhar só pelos números agregados.
 
+O administrador pode configurar, ao criar/editar a rotina, o
+**espaçamento nominal entre pickets** (em mm — convertido para pixels
+internamente, que é o que o pylinac espera em `analyze(picket_spacing=
+...)`). Além de ajudar a detecção do pylinac, esse mesmo valor nominal
+alimenta uma tabela **"Espaçamento entre pickets"** no detalhe do
+resultado: para cada picket (a partir do 2º), mostra o espaçamento
+medido até o anterior, o desvio em relação à média entre todos os
+pickets, e — se o nominal foi configurado — o desvio em relação a ele.
+Valores que excedem a tolerância de posicionamento da rotina aparecem
+destacados, como um alerta visual (não uma aprovação/reprovação
+formal) para ajudar o físico a notar rapidamente qual picket está com
+espaçamento fora do padrão dos demais.
+
 ### Starshot: imagem analisada (linhas e círculo de wobble)
 
 Igual ao relatório do pylinac para este teste, o detalhe do resultado
@@ -199,6 +212,28 @@ recalcula o centro do campo com esse limiar e refina o centro da BB
 50% fica dentro de uma fração de pixel do resultado original — só
 limiares bem diferentes de 50% chegam a mudar o resultado de forma
 perceptível).
+
+### Winston-Lutz: a imagem de referência em todos os gráficos
+
+O conjunto de imagens de um Winston-Lutz normalmente inclui uma ou
+mais imagens de **referência** (gantry/colimador/mesa a 0°) — o
+pylinac classifica isso automaticamente (`variable_axis == "Reference"`)
+e já aparecia como ponto cinza no gráfico de dispersão e na tabela,
+mas não nos gráficos polares por eixo (Gantry/Colimador/Mesa), já que
+esses só desenhavam os pontos daquele eixo específico. Agora a
+referência também aparece em **todos** os gráficos polares — com
+contorno próprio para se destacar — servindo de âncora visual pra
+comparar onde o erro estava na configuração de referência.
+
+### IsoAlign: gráfico de tendência e filtros
+
+O seletor de métricas do gráfico de tendência do IsoAlign mostra só as
+métricas com tolerância configurável (tamanho de campo medido/nominal
+e o desvio campo→EPID, por exemplo, ficam de fora — são só
+informativas, não fazem sentido acompanhar como tendência). O filtro
+por ângulo de Gantry também não aparece na tela da rotina: como o
+IsoAlign é feito com o fantoma parado (não repetido em vários ângulos,
+como picket fence/starshot), esse filtro não tem utilidade aqui.
 
 ### IsoAlign: coincidência campo luminoso × radiação
 
