@@ -293,7 +293,31 @@ def render_wl_images(instance, params_dict=None, figsize=(5, 5), dpi=90):
     return out
 
 
-def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110):
+def _draw_isoalign_field_edge(ax, instance):
+    """Overlay só para visualização: desenha um retângulo tracejado nas
+    bordas de campo detectadas pelo FWXM. Não reimplementa nada da
+    detecção — usa os mesmos valores que o pylinac já calculou e usou para
+    o resultado (instance.field_center, field_width_x/y, em
+    StandardImagingFC2._find_field_info): o centro ± metade da largura de
+    campo em cada eixo, convertido de mm para pixel via image.dpmm. Assim
+    o físico vê exatamente onde a borda do FWXM está caindo na imagem, sem
+    risco de a linha desenhada não bater com o número do resultado (ao
+    contrário do Winston-Lutz, aqui não há limiar configurável nem
+    segmentação 2D para refazer — é literalmente o valor já usado)."""
+    try:
+        dpmm = instance.image.dpmm
+        cx, cy = instance.field_center.x, instance.field_center.y
+        half_w = (instance.field_width_x / 2) * dpmm
+        half_h = (instance.field_width_y / 2) * dpmm
+        xs = [cx - half_w, cx + half_w, cx + half_w, cx - half_w, cx - half_w]
+        ys = [cy - half_h, cy - half_h, cy + half_h, cy + half_h, cy - half_h]
+        ax.plot(xs, ys, color="yellow", linewidth=1.3, linestyle="--", label="Borda de campo (FWXM)")
+        ax.legend()
+    except Exception:
+        logger.exception("Falha ao desenhar a borda de campo FWXM (IsoAlign)")
+
+
+def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110, overlay_hook=None):
     """Gera a mesma figura que o pylinac usa no relatório (imagem 2D com as
     marcações da análise, ex.: para o Starshot: as linhas ajustadas de cada
     exposição e o círculo mínimo — 'wobble' — que elas formam) e devolve
@@ -301,7 +325,12 @@ def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110):
     que ``instance.plot_analyzed_image`` exista (todo módulo do pylinac com
     imagem 2D tem esse método) e que o matplotlib esteja configurado com o
     backend "Agg" (ver main.py) — sem isso, tentar desenhar trava/lança erro
-    num processo de servidor sem tela."""
+    num processo de servidor sem tela.
+
+    overlay_hook: função opcional (ax, instance) -> None, chamada depois do
+    plot_analyzed_image() do próprio pylinac, para desenhar por cima algo
+    que o módulo não desenha nativamente (ex.: a borda de campo do FWXM no
+    IsoAlign — ver _draw_isoalign_field_edge)."""
     import matplotlib.pyplot as plt
 
     fig = None
@@ -318,6 +347,8 @@ def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110):
         except (TypeError, AttributeError):
             instance.plot_analyzed_image(show=False)
         fig = plt.gcf()
+        if overlay_hook:
+            overlay_hook(fig.axes[0], instance)
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
         buf.seek(0)
@@ -429,7 +460,8 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
             flat["_wl_image_details"] = render_wl_images(instance, params_dict)
 
         if config.get("render_analyzed_image"):
-            flat["_analyzed_image_png_b64"] = render_analyzed_image_png_b64(instance)
+            overlay_hook = _draw_isoalign_field_edge if config.get("draw_fwxm_field_edge") else None
+            flat["_analyzed_image_png_b64"] = render_analyzed_image_png_b64(instance, overlay_hook=overlay_hook)
 
         warnings_list = []
         if isinstance(results_dict, dict) and results_dict.get("warnings"):

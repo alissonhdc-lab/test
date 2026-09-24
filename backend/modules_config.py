@@ -351,6 +351,12 @@ MODULES = {
         "input_mode": "single",
         "extract_dicom_angles": True,
         "render_analyzed_image": True,
+        # Só para visualização: desenha um retângulo tracejado nas bordas de
+        # campo detectadas pelo FWXM (ver _draw_isoalign_field_edge em
+        # analysis.py) — mostra ao físico exatamente onde a borda do FWXM
+        # está caindo na imagem, usando o mesmo valor já usado no cálculo
+        # de field_size_x_mm/y_mm (nada reimplementado).
+        "draw_fwxm_field_edge": True,
         "pre_analyze_hook": _crop_image_hook,
         "param_map": {
             "invert": "invert",

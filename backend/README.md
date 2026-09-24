@@ -233,6 +233,17 @@ detalhe do resultado também mostra a imagem analisada, com o centro do
 campo (vermelho), o centro do EPID (azul) e o centroide da BB (verde)
 marcados, igual ao relatório em PDF que o pylinac gera.
 
+A imagem analisada também mostra, **só para visualização** (não afeta
+nenhum número do resultado), um retângulo tracejado amarelo com a
+borda de campo detectada pelo FWXM — de onde vieram os valores de
+`field_size_x_mm`/`field_size_y_mm`. Como o pylinac calcula isso a
+partir de um perfil 1D (uma faixa horizontal e uma vertical no centro
+da imagem, não uma segmentação 2D como no Winston-Lutz), o retângulo é
+desenhado direto a partir de `field_center`/`field_width_x`/
+`field_width_y` já calculados pelo pylinac (`_draw_isoalign_field_edge`
+em `analysis.py`) — sem reimplementar nada da detecção, então a linha
+desenhada nunca pode divergir do número do resultado.
+
 ## Pasta observada — análise 100% automática
 
 Para os testes com upload de arquivo, cada rotina pode ter uma ou mais
