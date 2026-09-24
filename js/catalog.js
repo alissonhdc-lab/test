@@ -37,6 +37,24 @@
     anual: { label: "Anual", days: 365 },
   };
 
+  // ------------------------------------------------------------------
+  // Ativos: instrumentos de medição da instituição (câmaras de ionização,
+  // eletrômetros, barômetros, termômetros, termo-higrômetros, réguas,
+  // níveis). Cada um tem certificados de calibração (upload) e, só para
+  // câmaras de ionização, um histórico de medições de Ndw/Ks/Kpol — é
+  // desse histórico que a rotina de dosimetria TRS-398 puxa sozinha o
+  // valor mais recente, em vez do físico digitar esses números na rotina.
+  // ------------------------------------------------------------------
+  const ASSET_TYPES = {
+    ionization_chamber: { label: "Câmara de ionização", icon: "📡", hasMeasurementHistory: true },
+    electrometer: { label: "Eletrômetro", icon: "🔌", hasMeasurementHistory: false },
+    barometer: { label: "Barômetro", icon: "🌡️", hasMeasurementHistory: false },
+    thermometer: { label: "Termômetro", icon: "🌡️", hasMeasurementHistory: false },
+    thermo_hygrometer: { label: "Termo-higrômetro", icon: "💧", hasMeasurementHistory: false },
+    ruler: { label: "Régua", icon: "📏", hasMeasurementHistory: false },
+    level: { label: "Nível", icon: "📐", hasMeasurementHistory: false },
+  };
+
   // type: 'number' | 'text' | 'select' | 'checkbox'
   // tolType: 'max' (valor <= tol), 'min' (valor >= tol),
   //          'range' (tolLow <= valor <= tolHigh), 'bool', 'info' (sem tolerância)
@@ -842,30 +860,43 @@
         type: "number",
         default: "",
       },
-      { key: "chamber_model", label: "Câmara de ionização — modelo", type: "text", default: "" },
-      { key: "chamber_serial", label: "Câmara — número de série", type: "text", default: "" },
       {
-        key: "chamber_type",
-        label: "Tipo de câmara",
-        type: "select",
-        options: ["Farmer", "Placas paralelas"],
-        default: "Farmer",
+        key: "chamber_asset_id",
+        label: "Câmara de ionização (cadastrada em Ativos)",
+        type: "asset-select",
+        assetType: "ionization_chamber",
+        required: true,
       },
-      { key: "electrometer", label: "Eletrômetro", type: "text", default: "" },
-      { key: "calibration_certificate", label: "Certificado de calibração", type: "text", default: "" },
-      { key: "working_voltage", label: "Tensão de trabalho", type: "number", default: -300, unit: "V" },
-      { key: "ndw", label: "ND,w (fator de calibração da câmara)", type: "number", default: "", unit: "cGy/nC" },
-      { key: "ndw_uncertainty_pct", label: "Incerteza do ND,w (k=2)", type: "number", default: "", unit: "%" },
-      { key: "reference_ks", label: "Ks de referência", type: "number", default: "" },
-      { key: "reference_kpol", label: "Kpol de referência", type: "number", default: "" },
+      {
+        key: "electrometer_asset_id",
+        label: "Eletrômetro (cadastrado em Ativos)",
+        type: "asset-select",
+        assetType: "electrometer",
+      },
     ],
+    // O Ndw, Ks e Kpol de referência NÃO ficam mais digitados aqui: vêm da
+    // medição mais recente cadastrada para a câmara escolhida acima (ver
+    // Ativos → histórico de Ndw/Ks/Kpol, e /api/dosimetry/calculate no
+    // backend, que resolve isso antes de rodar o cálculo).
     // sessionFields: o que o físico lança a cada dosimetria mensal (não
     // fica salvo na rotina — vem junto de cada resultado). type
     // "readings" = lista de réplicas separadas por vírgula (até 6, como
     // na planilha original).
     sessionFields: [
       { key: "pressure_mbar", label: "Pressão (P)", type: "number", unit: "mBar", required: true },
+      {
+        key: "pressure_asset_id",
+        label: "Barômetro usado (cadastrado em Ativos)",
+        type: "asset-select",
+        assetType: "barometer",
+      },
       { key: "temperature_c", label: "Temperatura (T)", type: "number", unit: "°C", required: true },
+      {
+        key: "temperature_asset_id",
+        label: "Termômetro/termo-higrômetro usado (cadastrado em Ativos)",
+        type: "asset-select",
+        assetType: ["thermometer", "thermo_hygrometer"],
+      },
       {
         key: "m1_readings",
         label: "Leituras M1 = M− (tensão nominal, nC) — separe por vírgula",
@@ -906,7 +937,8 @@
       { key: "kq", label: "kQ (fator de correção da qualidade do feixe)", unit: "", tolType: "info" },
       { key: "ks", label: "Ks (recombinação iônica) usado", unit: "", tolType: "info" },
       { key: "kpol", label: "Kpol (polaridade) usado", unit: "", tolType: "info" },
-      { key: "dose_zref_cgy", label: "Dose medida em Zref", unit: "cGy", tolType: "info" },
+      { key: "dose_zref_cgy", label: "Dose absorvida em Zref", unit: "cGy", tolType: "info" },
+      { key: "dose_zmax_cgy", label: "Dose absorvida em Zmax (antes de ajuste)", unit: "cGy", tolType: "info" },
       { key: "calibration_factor_cgy_um", label: "Fator de Calibração (antes de ajuste)", unit: "cGy/UM", tolType: "info" },
       {
         key: "beam_quality_deviation_pct",
@@ -917,9 +949,21 @@
         tolHigh: 2,
       },
       {
+        key: "post_adjustment_dose_zmax_cgy",
+        label: "Dose absorvida em Zmax pós-ajuste",
+        unit: "cGy",
+        tolType: "info",
+      },
+      {
         key: "post_adjustment_calibration_factor_cgy_um",
         label: "Fator de Calibração pós-ajuste",
         unit: "cGy/UM",
+        tolType: "info",
+      },
+      {
+        key: "final_dose_zmax_cgy",
+        label: "Dose absorvida em Zmax — valor final da sessão",
+        unit: "cGy",
         tolType: "info",
       },
       {
@@ -960,6 +1004,7 @@
   global.RTQC.catalog = {
     EQUIPMENT_TYPES,
     FREQUENCIES,
+    ASSET_TYPES,
     PYLINAC_CATALOG,
     MANUAL_TEST_TYPE,
     DOSIMETRY_TRS398_TYPE,

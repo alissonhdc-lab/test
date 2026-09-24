@@ -162,6 +162,44 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS assets (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    manufacturer TEXT,
+    model TEXT,
+    serial_number TEXT,
+    location TEXT,
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS asset_certificates (
+    id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    stored_name TEXT NOT NULL,
+    issued_date TEXT,
+    valid_until TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS asset_measurements (
+    id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    measured_at TEXT NOT NULL,
+    ndw REAL,
+    ndw_uncertainty_pct REAL,
+    ks REAL,
+    kpol REAL,
+    working_voltage_v REAL,
+    beam_label TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -249,6 +287,50 @@ def _row_to_watch_folder(row):
         "folderPath": row["folder_path"],
         "active": bool(row["active"]),
         "lastError": row["last_error"],
+        "createdAt": row["created_at"],
+    }
+
+
+def _row_to_asset(row):
+    return {
+        "id": row["id"],
+        "type": row["type"],
+        "name": row["name"],
+        "manufacturer": row["manufacturer"],
+        "model": row["model"],
+        "serialNumber": row["serial_number"],
+        "location": row["location"],
+        "notes": row["notes"],
+        "active": bool(row["active"]),
+        "createdAt": row["created_at"],
+    }
+
+
+def _row_to_asset_certificate(row):
+    return {
+        "id": row["id"],
+        "assetId": row["asset_id"],
+        "filename": row["filename"],
+        "storedName": row["stored_name"],
+        "issuedDate": row["issued_date"],
+        "validUntil": row["valid_until"],
+        "notes": row["notes"],
+        "createdAt": row["created_at"],
+    }
+
+
+def _row_to_asset_measurement(row):
+    return {
+        "id": row["id"],
+        "assetId": row["asset_id"],
+        "measuredAt": row["measured_at"],
+        "ndw": row["ndw"],
+        "ndwUncertaintyPct": row["ndw_uncertainty_pct"],
+        "ks": row["ks"],
+        "kpol": row["kpol"],
+        "workingVoltageV": row["working_voltage_v"],
+        "beamLabel": row["beam_label"],
+        "notes": row["notes"],
         "createdAt": row["created_at"],
     }
 
@@ -372,6 +454,149 @@ def update_equipment(eid, data):
 def delete_equipment(eid):
     with get_conn() as conn:
         conn.execute("DELETE FROM equipments WHERE id = ?", (eid,))
+
+
+# ------------------------------------------------------------------
+# Ativos (instrumentos de medição: câmaras de ionização, eletrômetros,
+# barômetros, termômetros, termo-higrômetros, réguas, níveis)
+# ------------------------------------------------------------------
+def list_assets(asset_type=None):
+    with get_conn() as conn:
+        if asset_type:
+            rows = conn.execute("SELECT * FROM assets WHERE type = ? ORDER BY created_at", (asset_type,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM assets ORDER BY created_at").fetchall()
+        return [_row_to_asset(r) for r in rows]
+
+
+def get_asset(aid):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM assets WHERE id = ?", (aid,)).fetchone()
+        return _row_to_asset(row) if row else None
+
+
+def create_asset(data):
+    aid = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO assets (id,type,name,manufacturer,model,serial_number,location,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                aid,
+                data["type"],
+                data["name"],
+                data.get("manufacturer"),
+                data.get("model"),
+                data.get("serialNumber"),
+                data.get("location"),
+                data.get("notes"),
+                1 if data.get("active", True) else 0,
+                now_iso(),
+            ),
+        )
+    return aid
+
+
+def update_asset(aid, data):
+    fields = {
+        "type": data.get("type"),
+        "name": data.get("name"),
+        "manufacturer": data.get("manufacturer"),
+        "model": data.get("model"),
+        "serial_number": data.get("serialNumber"),
+        "location": data.get("location"),
+        "notes": data.get("notes"),
+        "active": 1 if data.get("active", True) else 0,
+    }
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE assets SET {set_clause} WHERE id = ?", (*fields.values(), aid))
+
+
+def delete_asset(aid):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM assets WHERE id = ?", (aid,))
+
+
+def list_asset_certificates(asset_id):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM asset_certificates WHERE asset_id = ? ORDER BY created_at DESC", (asset_id,)
+        ).fetchall()
+        return [_row_to_asset_certificate(r) for r in rows]
+
+
+def get_asset_certificate(cid):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM asset_certificates WHERE id = ?", (cid,)).fetchone()
+        return _row_to_asset_certificate(row) if row else None
+
+
+def create_asset_certificate(asset_id, filename, stored_name, issued_date, valid_until, notes):
+    cid = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO asset_certificates (id,asset_id,filename,stored_name,issued_date,valid_until,notes,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (cid, asset_id, filename, stored_name, issued_date, valid_until, notes, now_iso()),
+        )
+    return cid
+
+
+def delete_asset_certificate(cid):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM asset_certificates WHERE id = ?", (cid,))
+
+
+def list_asset_measurements(asset_id):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM asset_measurements WHERE asset_id = ? ORDER BY measured_at DESC, created_at DESC",
+            (asset_id,),
+        ).fetchall()
+        return [_row_to_asset_measurement(r) for r in rows]
+
+
+def get_asset_measurement(mid):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM asset_measurements WHERE id = ?", (mid,)).fetchone()
+        return _row_to_asset_measurement(row) if row else None
+
+
+def get_latest_asset_measurement(asset_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM asset_measurements WHERE asset_id = ? ORDER BY measured_at DESC, created_at DESC LIMIT 1",
+            (asset_id,),
+        ).fetchone()
+        return _row_to_asset_measurement(row) if row else None
+
+
+def create_asset_measurement(asset_id, data):
+    mid = new_id()
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO asset_measurements
+            (id, asset_id, measured_at, ndw, ndw_uncertainty_pct, ks, kpol, working_voltage_v, beam_label, notes, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                mid,
+                asset_id,
+                data["measuredAt"],
+                data.get("ndw"),
+                data.get("ndwUncertaintyPct"),
+                data.get("ks"),
+                data.get("kpol"),
+                data.get("workingVoltageV"),
+                data.get("beamLabel"),
+                data.get("notes"),
+                now_iso(),
+            ),
+        )
+    return mid
+
+
+def delete_asset_measurement(mid):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM asset_measurements WHERE id = ?", (mid,))
 
 
 # ------------------------------------------------------------------
@@ -564,6 +789,9 @@ def import_backup(data):
                 conn.execute("DELETE FROM watch_folders")
                 conn.execute("DELETE FROM routines")
                 conn.execute("DELETE FROM equipments")
+                conn.execute("DELETE FROM asset_measurements")
+                conn.execute("DELETE FROM asset_certificates")
+                conn.execute("DELETE FROM assets")
                 conn.execute("DELETE FROM users")
 
                 for u in data.get("users", []):
@@ -651,6 +879,60 @@ def import_backup(data):
                             wf.get("createdAt") or now_iso(),
                         ),
                     )
+                for a in data.get("assets", []):
+                    conn.execute(
+                        "INSERT INTO assets (id,type,name,manufacturer,model,serial_number,location,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            a.get("id") or new_id(),
+                            a["type"],
+                            a["name"],
+                            a.get("manufacturer"),
+                            a.get("model"),
+                            a.get("serialNumber"),
+                            a.get("location"),
+                            a.get("notes"),
+                            1 if a.get("active", True) else 0,
+                            a.get("createdAt") or now_iso(),
+                        ),
+                    )
+                # Os certificados restaurados aqui são só os METADADOS (nome,
+                # validade) — o arquivo em si fica em disco (pasta uploads/),
+                # fora do rtqc.db de propósito (igual aos demais arquivos da
+                # plataforma). Um backup/restore completo precisa copiar essa
+                # pasta separadamente; ver README.md.
+                for c in data.get("assetCertificates", []):
+                    conn.execute(
+                        "INSERT INTO asset_certificates (id,asset_id,filename,stored_name,issued_date,valid_until,notes,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                        (
+                            c.get("id") or new_id(),
+                            c["assetId"],
+                            c["filename"],
+                            c["storedName"],
+                            c.get("issuedDate"),
+                            c.get("validUntil"),
+                            c.get("notes"),
+                            c.get("createdAt") or now_iso(),
+                        ),
+                    )
+                for m in data.get("assetMeasurements", []):
+                    conn.execute(
+                        """INSERT INTO asset_measurements
+                        (id, asset_id, measured_at, ndw, ndw_uncertainty_pct, ks, kpol, working_voltage_v, beam_label, notes, created_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            m.get("id") or new_id(),
+                            m["assetId"],
+                            m["measuredAt"],
+                            m.get("ndw"),
+                            m.get("ndwUncertaintyPct"),
+                            m.get("ks"),
+                            m.get("kpol"),
+                            m.get("workingVoltageV"),
+                            m.get("beamLabel"),
+                            m.get("notes"),
+                            m.get("createdAt") or now_iso(),
+                        ),
+                    )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -663,13 +945,17 @@ def import_backup(data):
 # Backup automático de segurança
 # ------------------------------------------------------------------
 def _export_all():
+    assets = list_assets()
     return {
-        "version": 2,
+        "version": 3,
         "users": list_users(),
         "equipments": list_equipments(),
         "routines": list_routines(),
         "results": list_results(),
         "watchFolders": list_watch_folders(),
+        "assets": assets,
+        "assetCertificates": [c for a in assets for c in list_asset_certificates(a["id"])],
+        "assetMeasurements": [m for a in assets for m in list_asset_measurements(a["id"])],
     }
 
 

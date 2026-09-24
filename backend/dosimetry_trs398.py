@@ -25,9 +25,12 @@ Convenção geral do cálculo (idêntica à planilha):
 3. Ks (recombinação iônica): método de duas tensões (fórmula de Boag) se
    medido neste mês, senão valor de referência já estabelecido.
 4. Kpol (polaridade): (|M+|+|M−|)/(2×|M−|) se medido, senão referência.
-5. Dose absorvida na água em Zref: M1(média) × Ktp × Ks × Kpol × ND,w × kQ.
-6. Normalização para Zmax (fator de calibração cGy/UM): dose em Zref
-   dividida por PDP(10x10,Zref)/100, dividida pelo número nominal de UM.
+5. Dose absorvida na água em Zref: M1(média) × Ktp × Ks × Kpol × ND,w × kQ
+   (TRS-398, eq. 7.1 — grandezas em nC/cGy/(cGy·nC⁻¹), sem unidade extra).
+6. Dose absorvida em Zmax (a grandeza que o físico quer conferir, já que
+   o feixe é calibrado no máximo de dose): dose em Zref dividida por
+   PDP(10x10,Zref)/100. O fator de calibração (rendimento, cGy/UM) é essa
+   dose em Zmax dividida pelo número nominal de UM disparadas na sessão.
 7. Comparação com os valores esperados (Fcal e qualidade do feixe),
    e, se um ajuste físico foi feito no acelerador, o mesmo cálculo
    reaplicado às leituras pós-ajuste.
@@ -85,14 +88,22 @@ def _kpol(m_plus_avg, m_minus_avg):
 
 
 def _dose_water_zref(m1_avg, ktp_val, ks_val, kpol_val, ndw, kq_val):
+    """TRS-398, eq. 7.1: D_w,Qref = M_Qref × N_D,w,Qo × k_Q — a dose
+    absorvida na água em Zref (M_Qref já é a leitura corrigida por
+    Ktp/Ks/Kpol, o "M1(média) × Ktp × Ks × Kpol" de antes deste produto)."""
     return m1_avg * ktp_val * ks_val * kpol_val * ndw * kq_val
 
 
-def _calibration_factor(dose_at_zref, pdp_percent, um_nominal):
-    """Normaliza a dose medida em Zref para o fator de calibração em
-    cGy/UM no Zmax — mesma conta que a planilha faz em duas etapas
-    (primeiro dose/[(PDP/100)], depois esse valor / UM nominal)."""
-    dose_at_zmax = dose_at_zref / (pdp_percent / 100.0)
+def _dose_at_zmax(dose_at_zref, pdp_percent):
+    """Retropropaga a dose de Zref para Zmax usando a porcentagem de dose
+    profunda (PDP) do campo de referência: dose absorvida que o físico
+    realmente quer conferir contra o rendimento nominal do feixe."""
+    return dose_at_zref / (pdp_percent / 100.0)
+
+
+def _calibration_factor(dose_at_zmax, um_nominal):
+    """Fator de calibração (rendimento) em cGy/UM: dose em Zmax dividida
+    pelo número nominal de UM disparadas na sessão."""
     return dose_at_zmax / um_nominal
 
 
@@ -230,7 +241,9 @@ def calculate(params, session):
 
     dose_zref = _dose_water_zref(m1_avg, ktp_val, ks_val, kpol_val, ndw, kq_val)
     flat["dose_zref_cgy"] = dose_zref
-    fcal = _calibration_factor(dose_zref, pdp_percent, um_nominal)
+    dose_zmax = _dose_at_zmax(dose_zref, pdp_percent)
+    flat["dose_zmax_cgy"] = dose_zmax
+    fcal = _calibration_factor(dose_zmax, um_nominal)
     flat["calibration_factor_cgy_um"] = fcal
 
     # 7 - Comparação com valores esperados
@@ -260,14 +273,18 @@ def calculate(params, session):
         flat["post_adjustment_avg_nc"] = post_avg
         flat["post_adjustment_spread_pct"] = post_spread
         post_dose_zref = _dose_water_zref(post_avg, ktp_val, ks_val, kpol_val, ndw, kq_val)
-        post_fcal = _calibration_factor(post_dose_zref, pdp_percent, um_nominal)
+        post_dose_zmax = _dose_at_zmax(post_dose_zref, pdp_percent)
+        flat["post_adjustment_dose_zmax_cgy"] = post_dose_zmax
+        post_fcal = _calibration_factor(post_dose_zmax, um_nominal)
         flat["post_adjustment_calibration_factor_cgy_um"] = post_fcal
         flat["post_adjustment_deviation_pct"] = (post_fcal / expected_fcal - 1) * 100
         # O resultado final (o que efetivamente vale para o mês) passa a
         # ser o pós-ajuste — mesma convenção da planilha (AG54 = "Sim").
+        flat["final_dose_zmax_cgy"] = post_dose_zmax
         flat["final_calibration_factor_cgy_um"] = post_fcal
         flat["final_calibration_factor_deviation_pct"] = flat["post_adjustment_deviation_pct"]
     else:
+        flat["final_dose_zmax_cgy"] = dose_zmax
         flat["final_calibration_factor_cgy_um"] = fcal
         flat["final_calibration_factor_deviation_pct"] = flat["calibration_factor_deviation_pct"]
 

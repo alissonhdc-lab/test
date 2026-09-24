@@ -141,6 +141,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     const nav = [
       { route: "dashboard", label: "Painel", icon: "📊" },
       { route: "equipamentos", label: "Equipamentos", icon: "🏥" },
+      { route: "ativos", label: "Ativos", icon: "📡" },
       isAdmin && { route: "usuarios", label: "Usuários", icon: "👤" },
       isAdmin && { route: "backup", label: "Backup", icon: "💾" },
       { route: "ajuda", label: "Ajuda", icon: "❓" },
@@ -390,14 +391,264 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   }
 
   // ------------------------------------------------------------------
+  // Ativos: instrumentos de medição (câmaras de ionização, eletrômetros,
+  // barômetros, termômetros, termo-higrômetros, réguas, níveis) — cada um
+  // com certificados de calibração e, para câmaras, histórico de Ndw/Ks/Kpol.
+  // ------------------------------------------------------------------
+  function renderAssetsList(assets, session) {
+    const { ASSET_TYPES } = global.RTQC.catalog;
+    const isAdmin = session.role === "admin";
+    const groups = Object.keys(ASSET_TYPES).map((type) => ({
+      type,
+      items: assets.filter((a) => a.type === type),
+    }));
+    const groupsHtml = groups
+      .filter((g) => g.items.length > 0)
+      .map((g) => {
+        const cards = g.items
+          .map(
+            (a) => `
+          <div class="equip-card" data-action="open-asset" data-id="${a.id}">
+            <div class="equip-card-top">
+              ${a.active === false ? '<span class="badge badge-muted">Inativo</span>' : ""}
+            </div>
+            <h3>${esc(a.name)}</h3>
+            <p class="muted">${esc(a.model || "")} ${a.manufacturer ? "· " + esc(a.manufacturer) : ""}</p>
+            <p class="muted small">${esc(a.serialNumber ? "Nº série " + a.serialNumber : "")}</p>
+          </div>`
+          )
+          .join("");
+        return `
+        <div class="panel">
+          <div class="panel-header"><h3>${ASSET_TYPES[g.type].icon} ${esc(ASSET_TYPES[g.type].label)}</h3></div>
+          <div class="equip-grid">${cards}</div>
+        </div>`;
+      })
+      .join("");
+
+    return `
+      <div class="page-header">
+        <h2>Ativos</h2>
+        ${isAdmin ? `<button class="btn btn-primary" data-action="new-asset">+ Novo ativo</button>` : ""}
+      </div>
+      <p class="muted">Câmaras de ionização, eletrômetros, barômetros, termômetros, termo-higrômetros, réguas e níveis — com certificados de calibração e, para câmaras, histórico de Ndw/Ks/Kpol usado pela dosimetria TRS-398.</p>
+      ${
+        assets.length === 0
+          ? `<div class="empty-state">Nenhum ativo cadastrado ainda. Clique em "Novo ativo" para começar.</div>`
+          : groupsHtml
+      }`;
+  }
+
+  function assetFormHtml(asset) {
+    const { ASSET_TYPES } = global.RTQC.catalog;
+    const a = asset || {};
+    const typeOptions = Object.entries(ASSET_TYPES)
+      .map(([key, t]) => `<option value="${key}" ${a.type === key ? "selected" : ""}>${esc(t.label)}</option>`)
+      .join("");
+    return `
+      <form id="asset-form" class="stacked-form" data-id="${a.id || ""}">
+        <label>Tipo de ativo
+          <select name="type" required>${typeOptions}</select>
+        </label>
+        <label>Nome / identificação
+          <input type="text" name="name" required value="${esc(a.name || "")}" placeholder="Ex.: Câmara Farmer PTW 30013" />
+        </label>
+        <div class="form-grid-2">
+          <label>Fabricante
+            <input type="text" name="manufacturer" value="${esc(a.manufacturer || "")}" />
+          </label>
+          <label>Modelo
+            <input type="text" name="model" value="${esc(a.model || "")}" />
+          </label>
+        </div>
+        <label>Número de série
+          <input type="text" name="serialNumber" value="${esc(a.serialNumber || "")}" />
+        </label>
+        <label>Localização
+          <input type="text" name="location" value="${esc(a.location || "")}" placeholder="Ex.: Sala de física médica" />
+        </label>
+        <label>Observações
+          <textarea name="notes" rows="2">${esc(a.notes || "")}</textarea>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" name="active" ${a.active !== false ? "checked" : ""} /> Ativo em uso
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn" data-action="close-modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </form>`;
+  }
+
+  function assetCertificatesTableHtml(asset, certificates, isAdmin) {
+    const rows = certificates
+      .map(
+        (c) => `
+      <tr>
+        <td><a href="#" data-action="download-certificate" data-asset-id="${asset.id}" data-cert-id="${c.id}" data-filename="${esc(c.filename)}">${esc(c.filename)}</a></td>
+        <td>${c.issuedDate ? fmtDate(c.issuedDate) : "—"}</td>
+        <td>${c.validUntil ? fmtDate(c.validUntil) : "—"}</td>
+        <td>${esc(c.notes || "")}</td>
+        <td class="row-actions">${isAdmin ? `<button class="icon-btn" data-action="delete-certificate" data-asset-id="${asset.id}" data-cert-id="${c.id}" title="Excluir">🗑</button>` : ""}</td>
+      </tr>`
+      )
+      .join("");
+    return `
+      <table class="data-table">
+        <thead><tr><th>Arquivo</th><th>Emitido em</th><th>Válido até</th><th>Observações</th><th></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="5" class="muted">Nenhum certificado cadastrado ainda.</td></tr>`}</tbody>
+      </table>
+      ${
+        isAdmin
+          ? `<form id="certificate-upload-form" class="stacked-form mt" data-asset-id="${asset.id}">
+        <div class="form-grid-2">
+          <label>Arquivo do certificado
+            <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png" />
+          </label>
+          <label>Observações
+            <input type="text" name="notes" placeholder="Ex.: Calibração RPC 2026" />
+          </label>
+        </div>
+        <div class="form-grid-2">
+          <label>Emitido em
+            <input type="date" name="issuedDate" />
+          </label>
+          <label>Válido até
+            <input type="date" name="validUntil" />
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary">Enviar certificado</button>
+      </form>`
+          : ""
+      }`;
+  }
+
+  function assetMeasurementsTableHtml(asset, measurements, isAdmin) {
+    const rows = measurements
+      .map(
+        (m) => `
+      <tr>
+        <td>${fmtDate(m.measuredAt)}</td>
+        <td>${m.ndw !== null && m.ndw !== undefined ? m.ndw : "—"}</td>
+        <td>${m.ndwUncertaintyPct !== null && m.ndwUncertaintyPct !== undefined ? m.ndwUncertaintyPct + "%" : "—"}</td>
+        <td>${m.ks !== null && m.ks !== undefined ? m.ks : "—"}</td>
+        <td>${m.kpol !== null && m.kpol !== undefined ? m.kpol : "—"}</td>
+        <td>${m.workingVoltageV !== null && m.workingVoltageV !== undefined ? m.workingVoltageV + " V" : "—"}</td>
+        <td>${esc(m.beamLabel || "")}</td>
+        <td class="row-actions">${isAdmin ? `<button class="icon-btn" data-action="delete-measurement" data-asset-id="${asset.id}" data-measurement-id="${m.id}" title="Excluir">🗑</button>` : ""}</td>
+      </tr>`
+      )
+      .join("");
+    return `
+      <table class="data-table">
+        <thead><tr><th>Data</th><th>Ndw</th><th>Incerteza</th><th>Ks</th><th>Kpol</th><th>Tensão</th><th>Feixe/observação</th><th></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="8" class="muted">Nenhuma medição cadastrada ainda. A rotina TRS-398 usa sempre a mais recente.</td></tr>`}</tbody>
+      </table>
+      ${
+        isAdmin
+          ? `<form id="measurement-form" class="stacked-form mt" data-asset-id="${asset.id}">
+        <div class="form-grid-2">
+          <label>Data da medição
+            <input type="date" name="measuredAt" required value="${new Date().toISOString().slice(0, 10)}" />
+          </label>
+          <label>Feixe / observação
+            <input type="text" name="beamLabel" placeholder="Ex.: 6 MV Synergy X6" />
+          </label>
+        </div>
+        <div class="form-grid-2">
+          <label>Ndw <span class="unit-tag">cGy/nC</span>
+            <input type="number" step="any" name="ndw" />
+          </label>
+          <label>Incerteza do Ndw (k=2) <span class="unit-tag">%</span>
+            <input type="number" step="any" name="ndwUncertaintyPct" />
+          </label>
+        </div>
+        <div class="form-grid-2">
+          <label>Ks
+            <input type="number" step="any" name="ks" />
+          </label>
+          <label>Kpol
+            <input type="number" step="any" name="kpol" />
+          </label>
+        </div>
+        <label>Tensão de trabalho <span class="unit-tag">V</span>
+          <input type="number" step="any" name="workingVoltageV" value="-300" />
+        </label>
+        <label>Observações
+          <textarea name="notes" rows="2"></textarea>
+        </label>
+        <button type="submit" class="btn btn-primary">Adicionar medição</button>
+      </form>`
+          : ""
+      }`;
+  }
+
+  function renderAssetDetail(asset, certificates, measurements, session) {
+    const { ASSET_TYPES } = global.RTQC.catalog;
+    const isAdmin = session.role === "admin";
+    const typeInfo = ASSET_TYPES[asset.type] || { label: asset.type, hasMeasurementHistory: false };
+    return `
+      <div class="page-header">
+        <div>
+          <a href="#/ativos" class="back-link">← Ativos</a>
+          <h2>${esc(asset.name)} <span class="equip-type-tag">${typeInfo.icon || ""} ${esc(typeInfo.label)}</span></h2>
+          <p class="muted">${esc(asset.manufacturer || "")} ${asset.model ? "· " + esc(asset.model) : ""} ${asset.serialNumber ? "· Nº série " + esc(asset.serialNumber) : ""}</p>
+          <p class="muted small">${esc(asset.location || "")}</p>
+        </div>
+        <div class="header-actions">
+          ${
+            isAdmin
+              ? `<button class="btn" data-action="edit-asset" data-id="${asset.id}">Editar</button>
+          <button class="btn btn-danger" data-action="delete-asset" data-id="${asset.id}">Excluir</button>`
+              : ""
+          }
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h3>Certificados de calibração</h3></div>
+        ${assetCertificatesTableHtml(asset, certificates, isAdmin)}
+      </div>
+
+      ${
+        typeInfo.hasMeasurementHistory
+          ? `<div class="panel mt">
+        <div class="panel-header"><h3>Histórico de Ndw / Ks / Kpol</h3></div>
+        <p class="muted small">A rotina de dosimetria TRS-398 vinculada a esta câmara usa sempre a medição mais recente desta lista.</p>
+        ${assetMeasurementsTableHtml(asset, measurements, isAdmin)}
+      </div>`
+          : ""
+      }
+    `;
+  }
+
+  // ------------------------------------------------------------------
   // Formulário de rotina (novo/editar) — escolha de módulo pylinac ou manual
   // ------------------------------------------------------------------
-  function moduleParamsFormHtml(module, savedParams) {
+  function moduleParamsFormHtml(module, savedParams, assetsByType) {
     if (!module || !module.params) return "";
     const params = savedParams || {};
+    assetsByType = assetsByType || {};
     return module.params
       .map((p) => {
         const val = params[p.key] !== undefined ? params[p.key] : p.default;
+        if (p.type === "asset-select") {
+          const types = Array.isArray(p.assetType) ? p.assetType : [p.assetType];
+          const options = types.reduce((acc, t) => acc.concat(assetsByType[t] || []), []);
+          const opts = options
+            .map(
+              (a) =>
+                `<option value="${esc(a.id)}" ${val === a.id ? "selected" : ""}>${esc(a.name)}${a.model ? " — " + esc(a.model) : ""}</option>`
+            )
+            .join("");
+          return `<label>${esc(p.label)}
+            <select name="param__${p.key}" ${p.required ? "required" : ""}>
+              <option value="">— selecione —</option>
+              ${opts}
+            </select>
+            ${options.length === 0 ? `<span class="muted small">Nenhum ativo desse tipo cadastrado ainda. Vá em <a href="#/ativos">Ativos</a>.</span>` : ""}
+          </label>`;
+        }
         if (p.type === "select") {
           const opts = p.options
             .map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc((p.optionLabels && p.optionLabels[o]) || o)}</option>`)
@@ -497,8 +748,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     </div>`;
   }
 
-  function routineFormHtml(equipment, routine) {
+  function routineFormHtml(equipment, routine, assetsByType) {
     const r = routine || {};
+    assetsByType = assetsByType || {};
     const testType = r.testType || "pylinac";
     const modules = getModulesForType(equipment.type);
     const grouped = groupModules(modules);
@@ -547,7 +799,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           </select>
         </label>
         <div id="module-description" class="muted small">${selectedModule ? esc(selectedModule.description) + " (" + esc(selectedModule.pylinacRef) + ")" : ""}</div>
-        <div id="module-params-container" class="params-grid">${selectedModule ? moduleParamsFormHtml(selectedModule, r.params) : ""}</div>
+        <div id="module-params-container" class="params-grid">${selectedModule ? moduleParamsFormHtml(selectedModule, r.params, assetsByType) : ""}</div>
         <h4 class="mt">Métricas e tolerâncias de aprovação</h4>
         <div id="module-metrics-container">${selectedModule ? moduleMetricsPreviewHtml(selectedModule, r.metrics) : ""}</div>
       </div>
@@ -556,7 +808,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <p class="muted small">${esc(DOSIMETRY_TRS398_TYPE.description)}</p>
         <h4>Configuração do feixe e do conjunto dosimétrico</h4>
         <p class="muted small">Preenchida uma vez (equivalente às planilhas de referência) — o físico só lança as leituras a cada dosimetria mensal.</p>
-        <div class="params-grid">${moduleParamsFormHtml(DOSIMETRY_TRS398_TYPE, r.params)}</div>
+        <div class="params-grid">${moduleParamsFormHtml(DOSIMETRY_TRS398_TYPE, r.params, assetsByType)}</div>
         <h4 class="mt">Métricas e tolerâncias de aprovação</h4>
         <div>${moduleMetricsPreviewHtml(DOSIMETRY_TRS398_TYPE, r.metrics)}</div>
       </div>
@@ -901,7 +1153,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // (réplicas separadas por vírgula) — mais simples que uma grade
   // dinâmica de linhas, e igualmente fiel à planilha original (até 6
   // réplicas por leitura).
-  function trs398SessionFormHtml() {
+  function trs398SessionFormHtml(assetsByType) {
+    assetsByType = assetsByType || {};
     const fields = DOSIMETRY_TRS398_TYPE.sessionFields
       .map((f) => {
         if (f.type === "checkbox") {
@@ -913,6 +1166,19 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         if (f.type === "readings") {
           return `<label>${esc(f.label)}
             <input type="text" name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="readings" placeholder="ex.: 11.54, 11.55, 11.54" />
+          </label>`;
+        }
+        if (f.type === "asset-select") {
+          const types = Array.isArray(f.assetType) ? f.assetType : [f.assetType];
+          const options = types.reduce((acc, t) => acc.concat(assetsByType[t] || []), []);
+          const opts = options
+            .map((a) => `<option value="${esc(a.id)}">${esc(a.name)}${a.model ? " — " + esc(a.model) : ""}</option>`)
+            .join("");
+          return `<label>${esc(f.label)}
+            <select name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="asset-select">
+              <option value="">— selecione —</option>
+              ${opts}
+            </select>
           </label>`;
         }
         return `<label>${esc(f.label)} ${f.unit ? `<span class="unit-tag">${esc(f.unit)}</span>` : ""}
@@ -936,7 +1202,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     </div>`;
   }
 
-  function resultFormHtml(routine, module) {
+  function resultFormHtml(routine, module, assetsByType) {
     const metrics = routine.metrics || [];
     const fields = metrics
       .map((m) => {
@@ -967,7 +1233,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <input type="text" name="performedByName" required placeholder="Nome de quem realizou o teste" />
       </label>
       ${showUpload ? pylinacUploadSectionHtml(module) : ""}
-      ${showTrs398 ? trs398SessionFormHtml() : ""}
+      ${showTrs398 ? trs398SessionFormHtml(assetsByType) : ""}
       ${
         module && !module.requiresFiles && !showTrs398 && module.autoAnalysisNote
           ? `<p class="muted small">ℹ️ ${esc(module.autoAnalysisNote)}</p>`
@@ -1338,6 +1604,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     renderEquipmentsList,
     equipmentForm,
     renderEquipmentDetail,
+    renderAssetsList,
+    assetFormHtml,
+    renderAssetDetail,
     routineFormHtml,
     moduleParamsFormHtml,
     moduleMetricsPreviewHtml,

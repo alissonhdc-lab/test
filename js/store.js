@@ -117,6 +117,49 @@
       return apiDelete(`/api/equipamentos/${id}`);
     },
 
+    // ---- ativos (instrumentos de medição) ----
+    listAssets(type) {
+      const qs = type ? `?type=${encodeURIComponent(type)}` : "";
+      return apiGet(`/api/ativos${qs}`);
+    },
+    addAsset(asset) {
+      return apiPost("/api/ativos", asset);
+    },
+    updateAsset(id, patch) {
+      return apiPut(`/api/ativos/${id}`, patch);
+    },
+    deleteAsset(id) {
+      return apiDelete(`/api/ativos/${id}`);
+    },
+    listAssetCertificates(assetId) {
+      return apiGet(`/api/ativos/${assetId}/certificados`);
+    },
+    async uploadAssetCertificate(assetId, file, { issuedDate, validUntil, notes } = {}) {
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      if (issuedDate) fd.append("issued_date", issuedDate);
+      if (validUntil) fd.append("valid_until", validUntil);
+      if (notes) fd.append("notes", notes);
+      const token = getSessionToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      return apiFetch(`/api/ativos/${assetId}/certificados`, { method: "POST", headers, body: fd });
+    },
+    certificateFileUrl(assetId, certId) {
+      return `${getBackendUrl()}/api/ativos/${assetId}/certificados/${certId}/arquivo`;
+    },
+    deleteAssetCertificate(assetId, certId) {
+      return apiDelete(`/api/ativos/${assetId}/certificados/${certId}`);
+    },
+    listAssetMeasurements(assetId) {
+      return apiGet(`/api/ativos/${assetId}/medicoes`);
+    },
+    addAssetMeasurement(assetId, measurement) {
+      return apiPost(`/api/ativos/${assetId}/medicoes`, measurement);
+    },
+    deleteAssetMeasurement(assetId, measurementId) {
+      return apiDelete(`/api/ativos/${assetId}/medicoes/${measurementId}`);
+    },
+
     // ---- rotinas ----
     addRoutine(routine) {
       return apiPost("/api/rotinas", routine);

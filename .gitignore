@@ -15,3 +15,8 @@ backend/rtqc.db-journal
 
 # Configuração local (caminho da pasta de backup automático, específico da máquina)
 backend/rtqc_config.json
+
+# Arquivos enviados pelo usuário (certificados de calibração de Ativos) —
+# dados reais, não versionar; ver README.md sobre incluir esta pasta no
+# backup manual, já que o backup/export só leva os metadados.
+backend/uploads/

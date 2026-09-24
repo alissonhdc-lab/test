@@ -350,27 +350,62 @@ dosimetria usada como referência para a implementação:
 
 - **Parâmetros da rotina** (preenchidos uma vez, na criação/edição da
   rotina — equivalem às abas de configuração da planilha: feixe, conjunto
-  dosimétrico, coeficientes de kQ, Ks/Kpol de referência): tipo de feixe,
-  campo/SSD/Zref de referência, UM nominal, PDP de referência, rendimento
-  e qualidade do feixe esperados, coeficientes do polinômio de kQ (fótons,
-  câmara cilíndrica) ou kQ tabelado (elétrons, câmara de placas paralelas),
-  dados da câmara/eletrômetro, ND,w e Ks/Kpol de referência.
+  dosimétrico, coeficientes de kQ): tipo de feixe, campo/SSD/Zref de
+  referência, UM nominal, PDP de referência, rendimento e qualidade do
+  feixe esperados, coeficientes do polinômio de kQ (fótons, câmara
+  cilíndrica) ou kQ tabelado (elétrons, câmara de placas paralelas), e a
+  câmara de ionização/eletrômetro usados (referenciados de **Ativos**,
+  não digitados — ver seção abaixo).
 - **Leituras da sessão** (lançadas pelo físico a cada dosimetria mensal —
   equivalem às células de entrada do operador na planilha): pressão,
-  temperatura, réplicas de leitura M1/M+/M2/D20 (listas separadas por
+  temperatura (com o barômetro/termômetro usados, também referenciados de
+  Ativos), réplicas de leitura M1/M+/M2/D20 (listas separadas por
   vírgula), se Ks/Kpol foram remedidos nesta sessão ou usam o valor de
   referência, se houve ajuste do acelerador no meio da sessão e as
   leituras pós-ajuste.
 
 `dosimetry_trs398.py` reimplementa a cadeia de fórmulas da planilha (Ktp,
 PDD20,10→TPR20,10, kQ via polinômio de Andreo, Ks pelo método de duas
-tensões, Kpol, dose em Zref, fator de calibração e sua normalização
-pré/pós-ajuste) e foi validado número a número contra uma sessão real da
-planilha (feixe Synergy X6), incluindo uma particularidade não-óbvia da
-planilha original: a célula que compara a "qualidade do feixe" contra o
-valor de referência usa, na verdade, o TPR20,10 (não o PDD20,10, apesar
-dos rótulos em ambas as pontas dizerem "PDD20,10"/"PDP20,10") — mantido
-assim de propósito, para bater com o histórico já calculado pela física.
+tensões, Kpol, dose absorvida em Zref e em Zmax, fator de calibração e sua
+normalização pré/pós-ajuste) e foi validado número a número contra uma
+sessão real da planilha (feixe Synergy X6), incluindo uma particularidade
+não-óbvia da planilha original: a célula que compara a "qualidade do
+feixe" contra o valor de referência usa, na verdade, o TPR20,10 (não o
+PDD20,10, apesar dos rótulos em ambas as pontas dizerem
+"PDD20,10"/"PDP20,10") — mantido assim de propósito, para bater com o
+histórico já calculado pela física.
+
+O ND,w e o Ks/Kpol de referência da câmara **não ficam digitados na
+rotina**: a rotina só guarda qual câmara de ionização (um Ativo) ela usa,
+e o `/api/dosimetry/calculate` busca sozinho a medição mais recente
+cadastrada para essa câmara em **Ativos** antes de calcular — histórico de
+calibração de verdade, em vez de três números soltos copiados à mão a
+cada nova rotina.
+
+## Ativos (câmaras de ionização, eletrômetros, barômetros, termômetros...)
+
+Cadastro dos instrumentos de medição da instituição — câmara de
+ionização, eletrômetro, barômetro, termômetro, termo-higrômetro, régua,
+nível —, acessível pela tela **Ativos** do app. Cada ativo tem:
+
+- **Certificados de calibração**: upload de arquivo (PDF/imagem), com
+  data de emissão e validade. Os arquivos ficam gravados permanentemente
+  em `backend/uploads/ativos/<id-do-ativo>/` (pasta configurável por
+  `RTQC_UPLOADS_DIR`) — só os **metadados** (nome do arquivo, datas) vão
+  no `rtqc.db`/backup JSON; o conteúdo do arquivo em si não. **Se for
+  fazer backup/mudar de servidor, copie a pasta `backend/uploads/` junto**
+  — o backup/export da tela Backup não leva os arquivos, só os metadados
+  que apontam para eles.
+- **Histórico de Ndw/Ks/Kpol** (só para câmaras de ionização): cada vez
+  que a câmara é calibrada/remedida, uma nova entrada é adicionada (data,
+  Ndw, incerteza, Ks, Kpol, tensão de trabalho, feixe/observação) — nunca
+  sobrescrita. É desse histórico que a rotina de dosimetria TRS-398 puxa
+  sozinha a medição mais recente (ver seção acima).
+
+Uma rotina TRS-398 referencia uma câmara (obrigatório) e, opcionalmente,
+um eletrômetro; o lançamento de cada sessão mensal pode referenciar o
+barômetro e o termômetro/termo-higrômetro usados naquele dia (guardado
+junto do resultado, para rastreabilidade — não entra no cálculo).
 
 ## Estrutura do código
 
@@ -387,9 +422,12 @@ assim de propósito, para bater com o histórico já calculado pela física.
 ## Backup e restauração
 
 Os endpoints `/api/backup/export` e `/api/backup/import` (usados pela tela
-**Backup** do app) fazem um dump/restauração completos do banco. Para uma
+**Backup** do app) fazem um dump/restauração completos do banco, incluindo
+Ativos, certificados (metadados) e histórico de Ndw/Ks/Kpol. Para uma
 cópia de segurança "crua", também dá para simplesmente copiar o arquivo
-`rtqc.db` desta pasta.
+`rtqc.db` desta pasta — nesse caso, copie também a pasta `backend/uploads/`
+junto, senão os certificados de calibração ficam sem o arquivo (só o
+registro de que existiam).
 
 ### Backup automático de segurança
 

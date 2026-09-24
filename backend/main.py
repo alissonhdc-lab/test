@@ -40,7 +40,7 @@ from typing import List, Optional
 
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 import auth
 import db
@@ -64,6 +64,15 @@ app.add_middleware(
 )
 
 API_KEY = os.environ.get("RTQC_API_KEY", "").strip()
+
+# Certificados de calibração de Ativos ficam gravados permanentemente em
+# disco (não num diretório temporário como o /api/analyze) — cada ativo tem
+# sua própria subpasta, para não colidir nomes de arquivo entre ativos.
+UPLOADS_DIR = os.environ.get("RTQC_UPLOADS_DIR", os.path.join(os.path.dirname(__file__), "uploads"))
+
+
+def _asset_uploads_dir(asset_id: str) -> str:
+    return os.path.join(UPLOADS_DIR, "ativos", asset_id)
 
 
 def check_api_key(x_api_key: Optional[str]):
@@ -210,6 +219,117 @@ def delete_equipamento(eid: str, _: dict = Depends(require_admin)):
 
 
 # ==================================================================
+# Ativos (câmaras de ionização, eletrômetros, barômetros, termômetros,
+# termo-higrômetros, réguas, níveis — instrumentos de medição da
+# instituição, com certificados de calibração e, para câmaras, histórico
+# de Ndw/Ks/Kpol usado pela dosimetria TRS-398)
+# ==================================================================
+@app.get("/api/ativos")
+def list_ativos(type: Optional[str] = Query(None), _: dict = Depends(get_current_user)):
+    return db.list_assets(type)
+
+
+@app.post("/api/ativos")
+def create_ativo(data: dict = Body(...), _: dict = Depends(require_admin)):
+    aid = db.create_asset(data)
+    return db.get_asset(aid)
+
+
+@app.put("/api/ativos/{aid}")
+def update_ativo(aid: str, data: dict = Body(...), _: dict = Depends(require_admin)):
+    if not db.get_asset(aid):
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+    db.update_asset(aid, data)
+    return db.get_asset(aid)
+
+
+@app.delete("/api/ativos/{aid}")
+def delete_ativo(aid: str, _: dict = Depends(require_admin)):
+    for cert in db.list_asset_certificates(aid):
+        _delete_certificate_file(aid, cert)
+    db.delete_asset(aid)
+    return {"success": True}
+
+
+def _delete_certificate_file(asset_id: str, cert: dict):
+    path = os.path.join(_asset_uploads_dir(asset_id), cert["storedName"])
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        logger.exception("Falha ao remover arquivo de certificado %s", path)
+
+
+@app.get("/api/ativos/{aid}/certificados")
+def list_certificados(aid: str, _: dict = Depends(get_current_user)):
+    if not db.get_asset(aid):
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+    return db.list_asset_certificates(aid)
+
+
+@app.post("/api/ativos/{aid}/certificados")
+async def upload_certificado(
+    aid: str,
+    file: UploadFile = File(...),
+    issued_date: Optional[str] = Form(None),
+    valid_until: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    _: dict = Depends(require_admin),
+):
+    if not db.get_asset(aid):
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+    dest_dir = _asset_uploads_dir(aid)
+    os.makedirs(dest_dir, exist_ok=True)
+    stored_name = f"{db.new_id()}_{file.filename}"
+    dest = os.path.join(dest_dir, stored_name)
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+    cid = db.create_asset_certificate(aid, file.filename, stored_name, issued_date or None, valid_until or None, notes or None)
+    return db.get_asset_certificate(cid)
+
+
+@app.get("/api/ativos/{aid}/certificados/{cid}/arquivo")
+def download_certificado(aid: str, cid: str, _: dict = Depends(get_current_user)):
+    cert = db.get_asset_certificate(cid)
+    if not cert or cert["assetId"] != aid:
+        raise HTTPException(status_code=404, detail="Certificado não encontrado.")
+    path = os.path.join(_asset_uploads_dir(aid), cert["storedName"])
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Arquivo do certificado não foi encontrado no servidor.")
+    return FileResponse(path, filename=cert["filename"])
+
+
+@app.delete("/api/ativos/{aid}/certificados/{cid}")
+def delete_certificado(aid: str, cid: str, _: dict = Depends(require_admin)):
+    cert = db.get_asset_certificate(cid)
+    if cert and cert["assetId"] == aid:
+        _delete_certificate_file(aid, cert)
+        db.delete_asset_certificate(cid)
+    return {"success": True}
+
+
+@app.get("/api/ativos/{aid}/medicoes")
+def list_medicoes(aid: str, _: dict = Depends(get_current_user)):
+    if not db.get_asset(aid):
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+    return db.list_asset_measurements(aid)
+
+
+@app.post("/api/ativos/{aid}/medicoes")
+def create_medicao(aid: str, data: dict = Body(...), _: dict = Depends(require_admin)):
+    if not db.get_asset(aid):
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+    mid = db.create_asset_measurement(aid, data)
+    return db.get_asset_measurement(mid)
+
+
+@app.delete("/api/ativos/{aid}/medicoes/{mid}")
+def delete_medicao(aid: str, mid: str, _: dict = Depends(require_admin)):
+    db.delete_asset_measurement(mid)
+    return {"success": True}
+
+
+# ==================================================================
 # Rotinas
 # ==================================================================
 @app.get("/api/rotinas")
@@ -323,13 +443,17 @@ def delete_watch_folder(wid: str, _: dict = Depends(require_admin)):
 # ==================================================================
 @app.get("/api/backup/export")
 def backup_export(_: dict = Depends(require_admin)):
+    assets = db.list_assets()
     return {
-        "version": 2,
+        "version": 3,
         "users": db.list_users(),
         "equipments": db.list_equipments(),
         "routines": db.list_routines(),
         "results": db.list_results(),
         "watchFolders": db.list_watch_folders(),
+        "assets": assets,
+        "assetCertificates": [c for a in assets for c in db.list_asset_certificates(a["id"])],
+        "assetMeasurements": [m for a in assets for m in db.list_asset_measurements(a["id"])],
     }
 
 
@@ -421,10 +545,34 @@ async def dosimetry_calculate(
     """Calcula a dosimetria absoluta mensal (TRS-398) a partir dos
     parâmetros de referência da rotina (routine.params) e dos valores
     lançados pelo físico nesta sessão — sem arquivo/DICOM nenhum, por
-    isso não passa por run_analysis()/MODULES (ver dosimetry_trs398.py)."""
+    isso não passa por run_analysis()/MODULES (ver dosimetry_trs398.py).
+
+    O ND,w/Ks/Kpol de referência não vêm mais digitados na rotina: a rotina
+    só guarda qual câmara de ionização (ativo) usa, e aqui a gente busca a
+    medição mais recente cadastrada em Ativos para essa câmara — histórico
+    de calibração de verdade, em vez de 3 números soltos copiados à mão."""
     check_api_key(x_api_key)
-    params_dict = payload.get("params") or {}
+    params_dict = dict(payload.get("params") or {})
     session_dict = payload.get("session") or {}
+
+    chamber_asset_id = params_dict.get("chamber_asset_id")
+    if chamber_asset_id:
+        chamber = db.get_asset(chamber_asset_id)
+        if not chamber:
+            raise HTTPException(status_code=422, detail="A câmara de ionização vinculada a esta rotina não foi encontrada em Ativos.")
+        latest = db.get_latest_asset_measurement(chamber_asset_id)
+        if not latest:
+            raise HTTPException(
+                status_code=422,
+                detail=f"A câmara \"{chamber['name']}\" ainda não tem nenhuma medição de Ndw/Ks/Kpol cadastrada em Ativos.",
+            )
+        if latest.get("ndw") is not None:
+            params_dict["ndw"] = latest["ndw"]
+        if latest.get("ks") is not None:
+            params_dict["reference_ks"] = latest["ks"]
+        if latest.get("kpol") is not None:
+            params_dict["reference_kpol"] = latest["kpol"]
+
     try:
         result = calculate_dosimetry_trs398(params_dict, session_dict)
         return JSONResponse({"success": True, **result})

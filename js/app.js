@@ -13,6 +13,16 @@
   let trendSelection = {}; // routineId -> [metricKey,...]
   let resultFilters = {}; // routineId -> {gantry:Set, collimator:Set, status:Set, dateRange}
   let lastRoutineView = null; // { routineId, routine, filteredResults } — usado por drawTrendChart/resize
+  let currentAssetsByType = {}; // preenchido ao abrir o modal de rotina/resultado, usado pelos campos "asset-select"
+
+  function groupAssetsByType(assets) {
+    const byType = {};
+    (assets || []).forEach((a) => {
+      if (!byType[a.type]) byType[a.type] = [];
+      byType[a.type].push(a);
+    });
+    return byType;
+  }
 
   function getOrInitFilters(routineId) {
     if (!resultFilters[routineId]) resultFilters[routineId] = ui.defaultFilters();
@@ -159,6 +169,23 @@
       const filterOptions = buildFilterOptions(allResults);
       lastRoutineView = { routineId: routine.id, routine, filteredResults };
       content = ui.renderRoutineDetail(db, eq, routine, trendSelection[routine.id], watchFolders, allResults, filteredResults, filters, filterOptions, session);
+    } else if (route === "ativos" && parts.length === 1) {
+      const assets = await store.listAssets();
+      content = ui.renderAssetsList(assets, session);
+    } else if (route === "ativos" && parts.length === 2) {
+      const assets = await store.listAssets();
+      const asset = assets.find((a) => a.id === parts[1]);
+      if (!asset) {
+        location.hash = "#/ativos";
+        return;
+      }
+      const [certificates, measurements] = await Promise.all([
+        store.listAssetCertificates(asset.id),
+        catalog.ASSET_TYPES[asset.type] && catalog.ASSET_TYPES[asset.type].hasMeasurementHistory
+          ? store.listAssetMeasurements(asset.id)
+          : Promise.resolve([]),
+      ]);
+      content = ui.renderAssetDetail(asset, certificates, measurements, session);
     } else if (route === "usuarios") {
       content = ui.renderUsers(db, session);
     } else if (route === "backup") {
@@ -323,6 +350,63 @@
             await store.deleteEquipment(el.dataset.id);
             modal.toast("Equipamento excluído.", "success");
             location.hash = "#/equipamentos";
+            render();
+          },
+        });
+        break;
+      case "new-asset":
+        openAssetModal(null);
+        break;
+      case "open-asset":
+        location.hash = `#/ativos/${el.dataset.id}`;
+        break;
+      case "edit-asset": {
+        const assets = await store.listAssets();
+        const asset = assets.find((x) => x.id === el.dataset.id);
+        openAssetModal(asset);
+        break;
+      }
+      case "delete-asset":
+        modal.confirmModal({
+          title: "Excluir ativo",
+          message: "Isto excluirá o ativo, seus certificados e todo o histórico de medições. Rotinas de dosimetria vinculadas a ele deixarão de encontrar Ndw/Ks/Kpol. Deseja continuar?",
+          confirmLabel: "Excluir",
+          danger: true,
+          onConfirm: async () => {
+            await store.deleteAsset(el.dataset.id);
+            modal.toast("Ativo excluído.", "success");
+            location.hash = "#/ativos";
+            render();
+          },
+        });
+        break;
+      case "download-certificate": {
+        e.preventDefault();
+        await downloadCertificate(el.dataset.assetId, el.dataset.certId, el.dataset.filename);
+        break;
+      }
+      case "delete-certificate":
+        modal.confirmModal({
+          title: "Excluir certificado",
+          message: "Deseja excluir este certificado de calibração?",
+          confirmLabel: "Excluir",
+          danger: true,
+          onConfirm: async () => {
+            await store.deleteAssetCertificate(el.dataset.assetId, el.dataset.certId);
+            modal.toast("Certificado excluído.", "success");
+            render();
+          },
+        });
+        break;
+      case "delete-measurement":
+        modal.confirmModal({
+          title: "Excluir medição",
+          message: "Deseja excluir esta medição do histórico?",
+          confirmLabel: "Excluir",
+          danger: true,
+          onConfirm: async () => {
+            await store.deleteAssetMeasurement(el.dataset.assetId, el.dataset.measurementId);
+            modal.toast("Medição excluída.", "success");
             render();
           },
         });
@@ -539,6 +623,49 @@
         modal.toast(err.message, "error");
       }
     }
+    if (e.target.id === "certificate-upload-form") {
+      e.preventDefault();
+      const form = e.target;
+      const fd = new FormData(form);
+      const file = fd.get("file");
+      if (!file || !file.name) {
+        modal.toast("Selecione um arquivo.", "error");
+        return;
+      }
+      try {
+        await store.uploadAssetCertificate(form.dataset.assetId, file, {
+          issuedDate: fd.get("issuedDate") || undefined,
+          validUntil: fd.get("validUntil") || undefined,
+          notes: fd.get("notes") || undefined,
+        });
+        modal.toast("Certificado enviado.", "success");
+        render();
+      } catch (err) {
+        modal.toast(err.message, "error");
+      }
+    }
+    if (e.target.id === "measurement-form") {
+      e.preventDefault();
+      const form = e.target;
+      const fd = new FormData(form);
+      const numOrNull = (v) => (v === null || v === "" ? null : Number(v));
+      try {
+        await store.addAssetMeasurement(form.dataset.assetId, {
+          measuredAt: fd.get("measuredAt"),
+          ndw: numOrNull(fd.get("ndw")),
+          ndwUncertaintyPct: numOrNull(fd.get("ndwUncertaintyPct")),
+          ks: numOrNull(fd.get("ks")),
+          kpol: numOrNull(fd.get("kpol")),
+          workingVoltageV: numOrNull(fd.get("workingVoltageV")),
+          beamLabel: fd.get("beamLabel") || null,
+          notes: fd.get("notes") || null,
+        });
+        modal.toast("Medição adicionada.", "success");
+        render();
+      } catch (err) {
+        modal.toast(err.message, "error");
+      }
+    }
   });
 
   document.addEventListener("change", (e) => {
@@ -551,7 +678,7 @@
     if (e.target.id === "module-select") {
       const module = catalog.getModuleById(e.target.value);
       document.getElementById("module-description").textContent = module ? `${module.description} (${module.pylinacRef})` : "";
-      document.getElementById("module-params-container").innerHTML = module ? ui.moduleParamsFormHtml(module, {}) : "";
+      document.getElementById("module-params-container").innerHTML = module ? ui.moduleParamsFormHtml(module, {}, currentAssetsByType) : "";
       document.getElementById("module-metrics-container").innerHTML = module ? ui.moduleMetricsPreviewHtml(module, []) : "";
     }
     if (e.target.dataset.action === "manual-metric-toltype") {
@@ -615,12 +742,80 @@
   }
 
   // ------------------------------------------------------------------
+  // Modais: Ativos
+  // ------------------------------------------------------------------
+  function openAssetModal(asset) {
+    modal.openModal({ title: asset ? "Editar ativo" : "Novo ativo", bodyHtml: ui.assetFormHtml(asset), wide: true });
+    const form = document.getElementById("asset-form");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const data = {
+        type: fd.get("type"),
+        name: fd.get("name"),
+        manufacturer: fd.get("manufacturer"),
+        model: fd.get("model"),
+        serialNumber: fd.get("serialNumber"),
+        location: fd.get("location"),
+        notes: fd.get("notes"),
+        active: fd.get("active") === "on",
+      };
+      const id = form.dataset.id;
+      try {
+        if (id) {
+          await store.updateAsset(id, data);
+          modal.toast("Ativo atualizado.", "success");
+        } else {
+          await store.addAsset(data);
+          modal.toast("Ativo cadastrado.", "success");
+        }
+        modal.closeModal();
+        render();
+      } catch (err) {
+        modal.toast(err.message, "error");
+      }
+    });
+  }
+
+  async function downloadCertificate(assetId, certId, filename) {
+    const backendUrl = store.getBackendUrl();
+    const session = auth.currentSession();
+    const headers = session && session.token ? { Authorization: `Bearer ${session.token}` } : {};
+    try {
+      const resp = await fetch(`${backendUrl}/api/ativos/${assetId}/certificados/${certId}/arquivo`, { headers });
+      if (!resp.ok) throw new Error(`Erro ${resp.status} ao baixar o certificado.`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "certificado";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      modal.toast(err.message, "error");
+    }
+  }
+
+  // ------------------------------------------------------------------
   // Modais: Rotina
   // ------------------------------------------------------------------
   async function openRoutineModal(equipmentId, routine) {
     const db = await store.get();
     const equipment = db.equipments.find((e) => e.id === equipmentId);
-    modal.openModal({ title: routine ? "Editar rotina de CQ" : "Nova rotina de CQ", bodyHtml: ui.routineFormHtml(equipment, routine), wide: true });
+    let assets = [];
+    try {
+      assets = await store.listAssets();
+    } catch (err) {
+      // segue sem os ativos — os selects de câmara/eletrômetro ficam vazios
+    }
+    currentAssetsByType = groupAssetsByType(assets);
+    modal.openModal({
+      title: routine ? "Editar rotina de CQ" : "Nova rotina de CQ",
+      bodyHtml: ui.routineFormHtml(equipment, routine, currentAssetsByType),
+      wide: true,
+    });
     const form = document.getElementById("routine-form");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -733,14 +928,23 @@
   // ------------------------------------------------------------------
   // Modais: Resultado + Aprovação
   // ------------------------------------------------------------------
-  function openResultModal(routine) {
+  async function openResultModal(routine) {
     const module =
       routine.testType === "pylinac"
         ? catalog.getModuleById(routine.moduleId)
         : routine.testType === "trs398"
           ? catalog.DOSIMETRY_TRS398_TYPE
           : null;
-    modal.openModal({ title: "Registrar resultado", bodyHtml: ui.resultFormHtml(routine, module), wide: true });
+    if (routine.testType === "trs398") {
+      let assets = [];
+      try {
+        assets = await store.listAssets();
+      } catch (err) {
+        // segue sem os ativos — os selects de barômetro/termômetro ficam vazios
+      }
+      currentAssetsByType = groupAssetsByType(assets);
+    }
+    modal.openModal({ title: "Registrar resultado", bodyHtml: ui.resultFormHtml(routine, module, currentAssetsByType), wide: true });
     const form = document.getElementById("result-form");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -888,6 +1092,8 @@
               .map((s) => Number(s.trim()))
               .filter((n) => !Number.isNaN(n))
           : [];
+      } else if (type === "asset-select") {
+        sessionData[key] = input.value || null;
       } else {
         sessionData[key] = input.value === "" ? null : Number(input.value);
       }
@@ -922,10 +1128,14 @@
         input.value = formatted === null ? value : formatted;
       });
 
-      document.getElementById("raw-metrics-json-field").value = JSON.stringify(data.metrics);
+      // Guarda também as leituras/seleções da sessão (não só os valores
+      // calculados) — inclui pressure_asset_id/temperature_asset_id, para
+      // rastreabilidade de qual barômetro/termômetro foi usado neste dia.
+      const fullRawMetrics = { ...sessionData, ...data.metrics };
+      document.getElementById("raw-metrics-json-field").value = JSON.stringify(fullRawMetrics);
       document.getElementById("source-files-json-field").value = JSON.stringify([]);
       const rawJsonEl = document.getElementById("pylinac-raw-json");
-      rawJsonEl.textContent = JSON.stringify(data.metrics, null, 2);
+      rawJsonEl.textContent = JSON.stringify(fullRawMetrics, null, 2);
       document.getElementById("pylinac-raw-details").classList.remove("hidden");
 
       statusEl.textContent =
