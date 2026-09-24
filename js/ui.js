@@ -792,6 +792,31 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return !anyFail;
   }
 
+  // Mesma lógica de tolerância do computeResultPass, mas por métrica —
+  // usada para mostrar o ícone de aprovado/reprovado ao lado de cada linha
+  // no detalhe do resultado. Retorna null quando não há o que checar
+  // (métrica informativa, ou sem valor lançado) — nesse caso não se mostra
+  // ícone nenhum, só para métricas com tolerância de verdade.
+  function evaluateMetricPass(m, v) {
+    if (v === undefined || v === null || v === "") return null;
+    if (!m.tolType || m.tolType === "info") return null;
+    if (m.tolType === "bool") return !(v === "false" || v === false);
+    const num = Number(v);
+    if (Number.isNaN(num)) return null;
+    if (m.tolType === "max") return num <= Number(m.tol);
+    if (m.tolType === "min") return num >= Number(m.tol);
+    if (m.tolType === "range") return num >= Number(m.tolLow) && num <= Number(m.tolHigh);
+    return null;
+  }
+
+  function metricPassIconHtml(m, v) {
+    const pass = evaluateMetricPass(m, v);
+    if (pass === null) return `<span class="metric-pass-icon metric-pass-none" title="Sem tolerância definida"></span>`;
+    return pass
+      ? `<span class="metric-pass-icon metric-pass-ok" title="Dentro da tolerância">✓</span>`
+      : `<span class="metric-pass-icon metric-pass-fail" title="Fora da tolerância">✗</span>`;
+  }
+
   function pylinacUploadSectionHtml(module) {
     const mode = module.fileMode;
     let inputsHtml = "";
@@ -921,7 +946,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     const rows = metrics
       .map((m) => {
         const v = result.values[m.key];
-        return `<tr><td>${esc(m.label)}</td><td>${formatMetricValue(m, v)} ${v !== undefined && v !== "" ? esc(m.unit || "") : ""}</td><td>${esc(toleranceHint(m) || "—")}</td></tr>`;
+        return `<tr><td class="metric-pass-cell">${metricPassIconHtml(m, v)}</td><td>${esc(m.label)}</td><td>${formatMetricValue(m, v)} ${v !== undefined && v !== "" ? esc(m.unit || "") : ""}</td><td>${esc(toleranceHint(m) || "—")}</td></tr>`;
       })
       .join("");
     const wlDetails = winstonLutzImageDetails(routine, result);
@@ -930,8 +955,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       <div class="result-detail">
         <p><b>Data:</b> ${fmtDate(result.date)} &nbsp; <b>Executado por:</b> ${esc(result.performedByName || "—")}</p>
         <table class="mini-table">
-          <thead><tr><th>Métrica</th><th>Valor</th><th>Tolerância</th></tr></thead>
-          <tbody>${rows || "<tr><td colspan=3>Sem métricas.</td></tr>"}</tbody>
+          <thead><tr><th class="metric-pass-cell"></th><th>Métrica</th><th>Valor</th><th>Tolerância</th></tr></thead>
+          <tbody>${rows || "<tr><td colspan=4>Sem métricas.</td></tr>"}</tbody>
         </table>
         ${
           analyzedImage

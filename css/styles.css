@@ -206,6 +206,12 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 .mini-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
 .mini-table th, .mini-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
 
+.metric-pass-cell { width: 20px; padding-left: 2px !important; padding-right: 2px !important; text-align: center !important; }
+.metric-pass-icon { display: inline-block; width: 14px; font-size: 13px; font-weight: 700; line-height: 1; text-align: center; }
+.metric-pass-icon.metric-pass-ok { color: var(--success); }
+.metric-pass-icon.metric-pass-fail { color: var(--danger); }
+.metric-pass-icon.metric-pass-none { color: transparent; }
+
 .plain-list { margin: 0; padding-left: 18px; }
 .plain-list li { margin-bottom: 6px; }
 
