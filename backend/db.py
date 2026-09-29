@@ -62,6 +62,23 @@ def set_auto_backup_dir(path):
     _write_config(cfg)
 
 
+# Caminho do Sncdata.fdb (banco do Sun Nuclear Daily QA3/Atlas) a observar
+# para importar o teste diário automaticamente — mesma ideia do backup
+# automático: um caminho de arquivo local/rede, fora do rtqc.db, específico
+# da máquina onde o backend roda (ver snc_watcher.py).
+def get_snc_fdb_path():
+    return _read_config().get("sncFdbPath") or None
+
+
+def set_snc_fdb_path(path):
+    cfg = _read_config()
+    if path:
+        cfg["sncFdbPath"] = path
+    else:
+        cfg.pop("sncFdbPath", None)
+    _write_config(cfg)
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 

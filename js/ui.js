@@ -12,6 +12,7 @@
     PYLINAC_CATALOG,
     MANUAL_TEST_TYPE,
     DOSIMETRY_TRS398_TYPE,
+    DAILY_SNC_TYPE,
     getModulesForType,
     getModuleById,
     groupModules,
@@ -19,11 +20,13 @@
 
   // Resolve o "módulo" (definição de params/metrics) de uma rotina,
   // qualquer que seja seu testType — pylinac (vinculado a um módulo do
-  // catálogo), trs398 (dosimetria TRS-398, config fixa) ou manual
+  // catálogo), trs398 (dosimetria TRS-398, config fixa), snc_daily (teste
+  // diário importado automaticamente do Atlas, config fixa) ou manual
   // (métricas livres definidas pelo usuário).
   function moduleForRoutine(routine) {
     if (routine.testType === "pylinac") return getModuleById(routine.moduleId);
     if (routine.testType === "trs398") return DOSIMETRY_TRS398_TYPE;
+    if (routine.testType === "snc_daily") return DAILY_SNC_TYPE;
     return MANUAL_TEST_TYPE;
   }
 
@@ -625,13 +628,33 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Formulário de rotina (novo/editar) — escolha de módulo pylinac ou manual
   // ------------------------------------------------------------------
-  function moduleParamsFormHtml(module, savedParams, assetsByType) {
+  function moduleParamsFormHtml(module, savedParams, assetsByType, sncTemplates) {
     if (!module || !module.params) return "";
     const params = savedParams || {};
     assetsByType = assetsByType || {};
+    sncTemplates = sncTemplates || [];
     return module.params
       .map((p) => {
         const val = params[p.key] !== undefined ? params[p.key] : p.default;
+        if (p.type === "snc-template-select") {
+          const opts = sncTemplates
+            .map(
+              (t) =>
+                `<option value="${esc(t.setKey)}" ${String(val) === String(t.setKey) ? "selected" : ""}>${esc(t.templateName)} (${esc(t.beamType)}${t.beamEnergy ? " " + esc(t.beamEnergy) : ""} · ${esc(t.machineName)}/${esc(t.roomName)})</option>`
+            )
+            .join("");
+          return `<label>${esc(p.label)}
+            <select name="param__${p.key}" ${p.required ? 'data-cond-required="true"' : ""}>
+              <option value="">— selecione —</option>
+              ${opts}
+            </select>
+            ${
+              sncTemplates.length === 0
+                ? `<span class="muted small">Nenhum modelo encontrado — confira o caminho do Sncdata.fdb em <a href="#/backup">Backup</a>.</span>`
+                : ""
+            }
+          </label>`;
+        }
         if (p.type === "asset-select") {
           const types = Array.isArray(p.assetType) ? p.assetType : [p.assetType];
           const options = types.reduce((acc, t) => acc.concat(assetsByType[t] || []), []);
@@ -642,7 +665,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
             )
             .join("");
           return `<label>${esc(p.label)}
-            <select name="param__${p.key}" ${p.required ? "required" : ""}>
+            <select name="param__${p.key}" ${p.required ? 'data-cond-required="true"' : ""}>
               <option value="">— selecione —</option>
               ${opts}
             </select>
@@ -755,9 +778,10 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     </div>`;
   }
 
-  function routineFormHtml(equipment, routine, assetsByType) {
+  function routineFormHtml(equipment, routine, assetsByType, sncTemplates) {
     const r = routine || {};
     assetsByType = assetsByType || {};
+    sncTemplates = sncTemplates || [];
     const testType = r.testType || "pylinac";
     const modules = getModulesForType(equipment.type);
     const grouped = groupModules(modules);
@@ -794,6 +818,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <input type="radio" name="testType" value="trs398" ${testType === "trs398" ? "checked" : ""} data-action="toggle-test-type" /> Dosimetria Absoluta Mensal (TRS-398)
         </label>
         <label class="radio-label">
+          <input type="radio" name="testType" value="snc_daily" ${testType === "snc_daily" ? "checked" : ""} data-action="toggle-test-type" /> Teste Diário (Sun Nuclear Daily QA3)
+        </label>
+        <label class="radio-label">
           <input type="radio" name="testType" value="manual" ${testType === "manual" ? "checked" : ""} data-action="toggle-test-type" /> Manual / genérico
         </label>
       </fieldset>
@@ -818,6 +845,13 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <div class="params-grid">${moduleParamsFormHtml(DOSIMETRY_TRS398_TYPE, r.params, assetsByType)}</div>
         <h4 class="mt">Métricas e tolerâncias de aprovação</h4>
         <div>${moduleMetricsPreviewHtml(DOSIMETRY_TRS398_TYPE, r.metrics)}</div>
+      </div>
+
+      <div id="snc-section" class="${testType === "snc_daily" ? "" : "hidden"}">
+        <p class="muted small">${esc(DAILY_SNC_TYPE.description)}</p>
+        <div class="params-grid">${moduleParamsFormHtml(DAILY_SNC_TYPE, r.params, assetsByType, sncTemplates)}</div>
+        <h4 class="mt">Métricas e tolerâncias de aprovação</h4>
+        <div>${moduleMetricsPreviewHtml(DAILY_SNC_TYPE, r.metrics)}</div>
       </div>
 
       <div id="manual-section" class="${testType === "manual" ? "" : "hidden"}">
@@ -1405,7 +1439,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         }</p>
         ${
           result.rawMetrics
-            ? `<details><summary>Ver todos os dados retornados pelo pylinac</summary><pre class="raw-json">${esc(JSON.stringify(rawMetricsForDisplay(result.rawMetrics), null, 2))}</pre></details>`
+            ? `<details><summary>Ver todos os dados${result.analyzedWithPylinac ? " retornados pelo pylinac" : " brutos"}</summary><pre class="raw-json">${esc(JSON.stringify(rawMetricsForDisplay(result.rawMetrics), null, 2))}</pre></details>`
             : ""
         }
         <div class="form-actions">
@@ -1511,8 +1545,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Backup
   // ------------------------------------------------------------------
-  function renderBackup(db, backendUrl, autoBackupSetting) {
+  function renderBackup(db, backendUrl, autoBackupSetting, sncSetting) {
     autoBackupSetting = autoBackupSetting || {};
+    sncSetting = sncSetting || {};
     return `
       <div class="page-header"><h2>Backup e dados</h2></div>
       <div class="panel">
@@ -1546,6 +1581,27 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
               }</p>`
             : `<p class="muted small mt">Nenhuma pasta configurada — o backup automático está desativado.</p>`
         }
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h3>Integração Sun Nuclear Daily QA3 (teste diário automático)</h3></div>
+        <p class="muted">Informe o caminho do arquivo <code>Sncdata.fdb</code> (banco do Sun Nuclear Daily QA3/Atlas, no computador ou drive de rede onde o backend consegue enxergar) para importar o teste diário de constância automaticamente — <b>toda vez que o arquivo for atualizado</b>, os resultados novos entram sozinhos, sem precisar abrir o navegador. Depois de configurar, crie uma rotina do tipo "Teste Diário (Sun Nuclear Daily QA3)" para cada energia/feixe que quiser acompanhar.</p>
+        <label>Caminho do Sncdata.fdb
+          <input type="text" id="snc-fdb-path-input" value="${esc(sncSetting.sncFdbPath || "")}" placeholder="Ex.: Z:\\DailyQA3\\Sncdata.fdb" />
+        </label>
+        <div class="form-actions" style="justify-content:flex-start; margin-top:10px;">
+          <button class="btn" data-action="save-snc-fdb-path">Salvar caminho</button>
+          ${sncSetting.sncFdbPath ? `<button class="btn" data-action="run-snc-sync-now">Sincronizar agora</button>` : ""}
+        </div>
+        ${
+          sncSetting.sncFdbPath
+            ? `<p class="small mt ${sncSetting.fileExists ? "form-success" : "form-error"}">${
+                sncSetting.fileExists
+                  ? "✔ Arquivo encontrado — observado automaticamente a cada 30s."
+                  : "⚠ Arquivo não encontrado ou inacessível neste caminho no momento."
+              }</p>`
+            : `<p class="muted small mt">Nenhum caminho configurado — a importação automática está desativada.</p>`
+        }
+        <div id="snc-sync-status" class="muted small mt"></div>
       </div>
       <div class="panel">
         <div class="panel-header"><h3>Exportar</h3></div>

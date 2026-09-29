@@ -432,6 +432,50 @@ um eletrômetro; o lançamento de cada sessão mensal pode referenciar o
 barômetro e o termômetro/termo-higrômetro usados naquele dia (guardado
 junto do resultado, para rastreabilidade — não entra no cálculo).
 
+## Teste Diário (Sun Nuclear Daily QA3 / Atlas) — importação automática
+
+Módulo `"snc_daily"`: teste diário de constância do acelerador (dose,
+simetria axial/transversal, planura, energia, tamanho/deslocamento de
+campo), importado automaticamente do banco do **Sun Nuclear Daily QA3**
+(plataforma "Atlas") — o arquivo `Sncdata.fdb` — sempre que ele é
+atualizado, sem precisar abrir o navegador nem lançar nada manualmente.
+
+`Sncdata.fdb` é um banco **Firebird/InterBase em ODS 10.1** (geração
+Firebird 1.5) — Firebird ≥ 2.5 recusa abrir esse formato ("unsupported
+on-disk structure"), e não há servidor Firebird 1.5 disponível para rodar
+ao lado deste backend. Por isso `sncdata_reader.py` **lê as páginas do
+arquivo diretamente**, sem nenhum servidor Firebird: entende o cabeçalho
+de página, a descompressão RLE dos registros e os descritores de formato
+de cada tabela (`RDB$FORMATS`/`RDB$RELATION_FIELDS`) para decodificar os
+valores sozinho. É **somente leitura** — o arquivo original nunca é
+alterado. `sncdata_import.py` usa esse leitor para:
+
+- `list_active_templates()`: lista os modelos/energias ativos (ex.: "6
+  MV", "9 MeV") da(s) sala(s) ativa(s) do Atlas, com as tolerâncias
+  (`WARN`/`LIM`) configuradas para cada um — usado para popular o seletor
+  ao criar uma rotina `snc_daily`.
+- `read_results()`: lê os resultados (tabela `DQA3_TREND`) de um
+  modelo/energia (`SET_KEY`), já convertidos para as chaves de métrica da
+  app. Usa sempre `REL_DIFF_*` (desvio contra a última calibração/baseline
+  do conjunto) comparado com `WARN`/`LIM` do template — não
+  `DQA3_TREND.ACCEPTED`, que fica sempre `'Y'` nesse banco e não serve como
+  sinal de aprovação. Só importa medições com `FLAGS=4` (a medição oficial
+  do dia — via inspeção dos dados, é o valor que aparece exatamente uma
+  vez por dia em ~99% dos dias; `FLAGS=5/6` são sessões extras/manuais,
+  tipicamente sequências de poucos minutos com valores fisicamente
+  implausíveis, feitas durante ajuste/troubleshooting do acelerador).
+
+`snc_watcher.py` observa em segundo plano (a cada 30s) a data de
+modificação do arquivo configurado; quando muda, sincroniza sozinho todas
+as rotinas `snc_daily` — para cada uma, lê só os `DATA_KEY` mais novos que
+o último já importado (guardado em `rawMetrics._snc_data_key` do próprio
+resultado, sem tabela de estado separada) e cria um resultado novo por
+medição, marcado como automático (mesma badge "⚙ Automático" da pasta
+observada). O caminho do arquivo é uma configuração global (não por
+rotina) — configure em **Backup → Integração Sun Nuclear Daily QA3**, que
+também tem um botão "Sincronizar agora" para forçar uma sincronização
+imediata.
+
 ## Estrutura do código
 
 | Arquivo              | Responsabilidade                                             |
@@ -441,7 +485,10 @@ junto do resultado, para rastreabilidade — não entra no cálculo).
 | `analysis.py`          | Lógica de execução do pylinac (usada por `/api/analyze` e pelo observador) |
 | `modules_config.py`    | Mapeamento de cada teste do catálogo para a classe pylinac real, parâmetros e métricas |
 | `dosimetry_trs398.py`  | Cálculo da dosimetria absoluta mensal (TRS-398) — sem arquivo/DICOM, usado por `/api/dosimetry/calculate` |
-| `watcher.py`           | Observador de pastas em segundo plano                         |
+| `sncdata_reader.py`    | Leitor do Firebird ODS-10 (Sncdata.fdb) sem servidor Firebird — decodifica páginas/registros direto |
+| `sncdata_import.py`    | Normaliza os dados lidos (templates ativos, resultados do teste diário) para o formato da app |
+| `watcher.py`           | Observador de pastas em segundo plano (resultados de arquivo/pylinac) |
+| `snc_watcher.py`       | Observador do Sncdata.fdb em segundo plano (teste diário automático) |
 | `main.py`              | API REST (FastAPI) e ponto de entrada                          |
 
 ## Backup e restauração

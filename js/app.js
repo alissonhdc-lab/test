@@ -14,6 +14,7 @@
   let resultFilters = {}; // routineId -> {gantry:Set, collimator:Set, status:Set, dateRange}
   let lastRoutineView = null; // { routineId, routine, filteredResults } — usado por drawTrendChart/resize
   let currentAssetsByType = {}; // preenchido ao abrir o modal de rotina/resultado, usado pelos campos "asset-select"
+  let currentSncTemplates = []; // preenchido ao abrir o modal de rotina, usado pelo campo "snc-template-select"
 
   function groupAssetsByType(assets) {
     const byType = {};
@@ -22,6 +23,27 @@
       byType[a.type].push(a);
     });
     return byType;
+  }
+
+  // O formulário de rotina tem 4 seções (pylinac/trs398/snc_daily/manual),
+  // só uma visível por vez, mas todas ficam no mesmo <form> — um campo
+  // obrigatório numa seção escondida (ex.: câmara da rotina TRS-398)
+  // bloquearia o envio do formulário mesmo estando invisível, porque a
+  // validação nativa do HTML5 não distingue "display:none" de "só não é a
+  // aba ativa" da forma que a gente precisa aqui. Por isso os campos desse
+  // tipo nunca nascem com o atributo `required` nativo (ver
+  // data-cond-required em ui.js) — este helper liga/desliga `required` de
+  // verdade só na seção atualmente visível, toda vez que o tipo de teste
+  // muda (e uma vez ao abrir o modal, para bater com o testType inicial).
+  function syncConditionalRequired() {
+    ["pylinac-section", "trs398-section", "snc-section", "manual-section"].forEach((id) => {
+      const section = document.getElementById(id);
+      if (!section) return;
+      const visible = !section.classList.contains("hidden");
+      section.querySelectorAll('[data-cond-required="true"]').forEach((el) => {
+        el.required = visible;
+      });
+    });
   }
 
   function getOrInitFilters(routineId) {
@@ -195,7 +217,13 @@
       } catch (err) {
         // segue sem essa informação; a página ainda funciona
       }
-      content = ui.renderBackup(db, store.getBackendUrl(), autoBackupSetting);
+      let sncSetting = {};
+      try {
+        sncSetting = await store.getSncFdbSetting();
+      } catch (err) {
+        // segue sem essa informação; a página ainda funciona
+      }
+      content = ui.renderBackup(db, store.getBackendUrl(), autoBackupSetting, sncSetting);
     } else if (route === "ajuda") {
       content = ui.renderHelp();
     } else {
@@ -564,6 +592,38 @@
           },
         });
         break;
+      case "save-snc-fdb-path": {
+        const input = document.getElementById("snc-fdb-path-input");
+        if (!input.value.trim()) {
+          modal.toast("Informe o caminho do Sncdata.fdb.", "error");
+          break;
+        }
+        try {
+          await store.setSncFdbPath(input.value.trim());
+          modal.toast("Caminho salvo. Sincronizando pela primeira vez...", "success");
+          await store.runSncSyncNow();
+          render();
+        } catch (err) {
+          modal.toast(err.message, "error");
+        }
+        break;
+      }
+      case "run-snc-sync-now": {
+        const statusEl = document.getElementById("snc-sync-status");
+        if (statusEl) statusEl.textContent = "Sincronizando...";
+        try {
+          const result = await store.runSncSyncNow();
+          modal.toast(
+            result.created > 0 ? `${result.created} resultado(s) novo(s) importado(s).` : "Nada novo para importar.",
+            "success"
+          );
+          render();
+        } catch (err) {
+          modal.toast(err.message, "error");
+          if (statusEl) statusEl.textContent = "";
+        }
+        break;
+      }
       case "add-manual-metric":
         addManualMetricRow();
         break;
@@ -681,6 +741,8 @@
       document.getElementById("pylinac-section").classList.toggle("hidden", val !== "pylinac");
       document.getElementById("manual-section").classList.toggle("hidden", val !== "manual");
       document.getElementById("trs398-section").classList.toggle("hidden", val !== "trs398");
+      document.getElementById("snc-section").classList.toggle("hidden", val !== "snc_daily");
+      syncConditionalRequired();
     }
     if (e.target.id === "module-select") {
       const module = catalog.getModuleById(e.target.value);
@@ -818,11 +880,19 @@
       // segue sem os ativos — os selects de câmara/eletrômetro ficam vazios
     }
     currentAssetsByType = groupAssetsByType(assets);
+    try {
+      currentSncTemplates = await store.listSncTemplates();
+    } catch (err) {
+      // segue sem os modelos do Atlas — provavelmente o caminho do
+      // Sncdata.fdb ainda não foi configurado em Backup
+      currentSncTemplates = [];
+    }
     modal.openModal({
       title: routine ? "Editar rotina de CQ" : "Nova rotina de CQ",
-      bodyHtml: ui.routineFormHtml(equipment, routine, currentAssetsByType),
+      bodyHtml: ui.routineFormHtml(equipment, routine, currentAssetsByType, currentSncTemplates),
       wide: true,
     });
+    syncConditionalRequired();
     const form = document.getElementById("routine-form");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -858,6 +928,26 @@
         });
       } else if (testType === "trs398") {
         const module = catalog.DOSIMETRY_TRS398_TYPE;
+        module.params.forEach((p) => {
+          const raw = fd.get("param__" + p.key);
+          params[p.key] = p.type === "checkbox" ? form.querySelector(`[name="param__${p.key}"]`).checked : raw;
+        });
+        metrics = module.metrics.map((m) => {
+          const tolType = fd.get(`metric__${m.key}__tolType`) || m.tolType;
+          const entry = { key: m.key, label: m.label, unit: m.unit, tolType };
+          if (tolType === "max" || tolType === "min") entry.tol = parseFloat(fd.get(`metric__${m.key}__tol`));
+          if (tolType === "range") {
+            entry.tolLow = parseFloat(fd.get(`metric__${m.key}__tolLow`));
+            entry.tolHigh = parseFloat(fd.get(`metric__${m.key}__tolHigh`));
+          }
+          if (tolType === "action") {
+            entry.actionPct = parseFloat(fd.get(`metric__${m.key}__actionPct`));
+            entry.tolerancePct = parseFloat(fd.get(`metric__${m.key}__tolerancePct`));
+          }
+          return entry;
+        });
+      } else if (testType === "snc_daily") {
+        const module = catalog.DAILY_SNC_TYPE;
         module.params.forEach((p) => {
           const raw = fd.get("param__" + p.key);
           params[p.key] = p.type === "checkbox" ? form.querySelector(`[name="param__${p.key}"]`).checked : raw;
@@ -953,7 +1043,9 @@
         ? catalog.getModuleById(routine.moduleId)
         : routine.testType === "trs398"
           ? catalog.DOSIMETRY_TRS398_TYPE
-          : null;
+          : routine.testType === "snc_daily"
+            ? catalog.DAILY_SNC_TYPE
+            : null;
     if (routine.testType === "trs398") {
       let assets = [];
       try {

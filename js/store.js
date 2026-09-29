@@ -223,6 +223,21 @@
     runAutoBackupNow() {
       return apiPost("/api/settings/auto-backup/run-now");
     },
+
+    // ---- Sun Nuclear Daily QA3 / Atlas (teste diário automático) ----
+    getSncFdbSetting() {
+      return apiGet("/api/settings/snc-fdb");
+    },
+    setSncFdbPath(path) {
+      return apiPost("/api/settings/snc-fdb", { sncFdbPath: path });
+    },
+    runSncSyncNow() {
+      return apiPost("/api/settings/snc-fdb/sync-now");
+    },
+    listSncTemplates(path) {
+      const qs = path ? `?path=${encodeURIComponent(path)}` : "";
+      return apiGet(`/api/snc/templates${qs}`);
+    },
   };
 
   // ------------------------------------------------------------------

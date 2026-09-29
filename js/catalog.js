@@ -995,6 +995,115 @@
     ],
   };
 
+  // ------------------------------------------------------------------
+  // Teste Diário (Sun Nuclear Daily QA3 / Atlas) — importação automática.
+  // Diferente de todos os outros tipos, não há lançamento manual nem
+  // upload: o backend lê o Sncdata.fdb (Firebird ODS-10, decodificado
+  // diretamente — ver backend/sncdata_reader.py) e cria os resultados
+  // sozinho sempre que o arquivo é atualizado (backend/snc_watcher.py).
+  // A rotina só precisa saber QUAL modelo/energia do Atlas ("set_key")
+  // ela acompanha — escolhido de uma lista lida ao vivo do próprio banco.
+  // ------------------------------------------------------------------
+  const DAILY_SNC_TYPE = {
+    id: "snc_daily",
+    name: "Teste Diário (Sun Nuclear Daily QA3)",
+    group: "Constância diária",
+    pylinacRef: null,
+    applicableTypes: ["linac"],
+    description:
+      "Teste diário de constância do acelerador (dose, simetria, planura, energia, tamanho/deslocamento de campo), importado automaticamente do Sncdata.fdb (Sun Nuclear Daily QA3/Atlas) sempre que o arquivo é atualizado — sem lançamento manual. Configure o caminho do arquivo em Backup → Integração Sun Nuclear Daily QA3.",
+    requiresFiles: false,
+    autoAnalysisNote:
+      "Os resultados desta rotina chegam sozinhos, importados automaticamente do Atlas — normalmente não é preciso preencher nada aqui manualmente.",
+    params: [
+      {
+        key: "set_key",
+        label: "Modelo/energia (Atlas)",
+        type: "snc-template-select",
+        required: true,
+      },
+    ],
+    metrics: [
+      { key: "dose_pct", label: "Dose (% do nominal)", unit: "%", tolType: "info" },
+      {
+        key: "dose_deviation_pct",
+        label: "Desvio da Dose",
+        unit: "%",
+        tolType: "action",
+        actionPct: 3,
+        tolerancePct: 5,
+      },
+      { key: "axial_symmetry_pct", label: "Simetria Axial", unit: "%", tolType: "info" },
+      {
+        key: "axial_symmetry_deviation_pct",
+        label: "Desvio da Simetria Axial",
+        unit: "%",
+        tolType: "action",
+        actionPct: 3,
+        tolerancePct: 5,
+      },
+      { key: "transverse_symmetry_pct", label: "Simetria Transversal", unit: "%", tolType: "info" },
+      {
+        key: "transverse_symmetry_deviation_pct",
+        label: "Desvio da Simetria Transversal",
+        unit: "%",
+        tolType: "action",
+        actionPct: 3,
+        tolerancePct: 5,
+      },
+      { key: "flatness_pct", label: "Planura", unit: "%", tolType: "info" },
+      {
+        key: "flatness_deviation_pct",
+        label: "Desvio da Planura",
+        unit: "%",
+        tolType: "action",
+        actionPct: 3,
+        tolerancePct: 5,
+      },
+      {
+        key: "energy_deviation_pct",
+        label: "Desvio da Energia (fótons: X · elétrons: alcance prático)",
+        unit: "%",
+        tolType: "action",
+        actionPct: 3,
+        tolerancePct: 5,
+      },
+      {
+        key: "field_size_x_deviation_cm",
+        label: "Desvio do Tamanho de Campo (X) — só fótons",
+        unit: "cm",
+        tolType: "action",
+        actionPct: 0.3,
+        tolerancePct: 0.5,
+      },
+      {
+        key: "field_shift_x_deviation_cm",
+        label: "Desvio do Deslocamento de Campo (X) — só fótons",
+        unit: "cm",
+        tolType: "action",
+        actionPct: 0.3,
+        tolerancePct: 0.5,
+      },
+      {
+        key: "field_size_y_deviation_cm",
+        label: "Desvio do Tamanho de Campo (Y) — só fótons",
+        unit: "cm",
+        tolType: "action",
+        actionPct: 0.3,
+        tolerancePct: 0.5,
+      },
+      {
+        key: "field_shift_y_deviation_cm",
+        label: "Desvio do Deslocamento de Campo (Y) — só fótons",
+        unit: "cm",
+        tolType: "action",
+        actionPct: 0.3,
+        tolerancePct: 0.5,
+      },
+      { key: "accepted_by_atlas", label: "Aceito pelo Atlas (Sun Nuclear)", unit: "", tolType: "bool" },
+    ],
+  };
+
   function getModulesForType(equipmentType) {
     return PYLINAC_CATALOG.filter((m) => m.applicableTypes.includes(equipmentType));
   }
@@ -1020,6 +1129,7 @@
     PYLINAC_CATALOG,
     MANUAL_TEST_TYPE,
     DOSIMETRY_TRS398_TYPE,
+    DAILY_SNC_TYPE,
     getModulesForType,
     getModuleById,
     groupModules,

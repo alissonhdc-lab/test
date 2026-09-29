@@ -44,10 +44,12 @@ from fastapi.responses import FileResponse, JSONResponse
 
 import auth
 import db
+import snc_watcher
 import watcher
 from analysis import AnalysisError, run_analysis
 from dosimetry_trs398 import DosimetryError, calculate as calculate_dosimetry_trs398
 from modules_config import MODULES
+from sncdata_import import list_active_templates
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rtqc-backend")
@@ -111,6 +113,7 @@ def on_startup():
     db.init_db()
     db.maybe_restore_from_auto_backup()
     watcher.start()
+    snc_watcher.start()
     logger.info("Backend pronto. Banco de dados: %s", db.DB_PATH)
 
 
@@ -531,6 +534,61 @@ def run_auto_backup_now(_: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="Nenhuma pasta de backup automático configurada.")
     db.write_auto_backup_now()
     return get_auto_backup_setting(_)
+
+
+# ==================================================================
+# Sun Nuclear Daily QA3 / Atlas — importação automática do teste diário
+# a partir do Sncdata.fdb (Firebird ODS-10, lido direto — ver
+# sncdata_reader.py/sncdata_import.py). O caminho do arquivo é uma
+# configuração global (não por rotina), do mesmo jeito que a pasta de
+# backup automático — o snc_watcher.py observa esse caminho em segundo
+# plano e importa sozinho toda vez que o arquivo muda.
+# ==================================================================
+@app.get("/api/settings/snc-fdb")
+def get_snc_fdb_setting(_: dict = Depends(require_admin)):
+    path = db.get_snc_fdb_path()
+    return {"sncFdbPath": path, "fileExists": bool(path and os.path.isfile(path))}
+
+
+@app.post("/api/settings/snc-fdb")
+def set_snc_fdb_setting(data: dict = Body(...), _: dict = Depends(require_admin)):
+    path = (data.get("sncFdbPath") or "").strip() or None
+    db.set_snc_fdb_path(path)
+    return get_snc_fdb_setting(_)
+
+
+@app.post("/api/settings/snc-fdb/sync-now")
+def run_snc_sync_now(_: dict = Depends(require_admin)):
+    path = db.get_snc_fdb_path()
+    if not path:
+        raise HTTPException(status_code=400, detail="Nenhum caminho do Sncdata.fdb configurado.")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=400, detail=f"Arquivo não encontrado ou inacessível: {path}")
+    try:
+        created = snc_watcher.sync_now(path)
+    except Exception as e:
+        logger.exception("Falha na sincronização manual do Sncdata.fdb")
+        raise HTTPException(status_code=422, detail=f"Falha ao ler o Sncdata.fdb: {e}")
+    return {"success": True, "created": created}
+
+
+@app.get("/api/snc/templates")
+def get_snc_templates(path: Optional[str] = Query(None), _: dict = Depends(require_admin)):
+    """Lista os templates ativos (modelos de energia/feixe) do Sncdata.fdb
+    configurado — usado para popular o seletor de SET_KEY ao criar uma
+    rotina do tipo "snc_daily". Aceita um `path` opcional para testar um
+    arquivo antes de salvá-lo como o caminho oficial (ex.: ao configurar
+    pela primeira vez)."""
+    fdb_path = path or db.get_snc_fdb_path()
+    if not fdb_path:
+        raise HTTPException(status_code=400, detail="Nenhum caminho do Sncdata.fdb configurado.")
+    if not os.path.isfile(fdb_path):
+        raise HTTPException(status_code=400, detail=f"Arquivo não encontrado ou inacessível: {fdb_path}")
+    try:
+        return list_active_templates(fdb_path)
+    except Exception as e:
+        logger.exception("Falha ao ler templates do Sncdata.fdb")
+        raise HTTPException(status_code=422, detail=f"Falha ao ler o Sncdata.fdb: {e}")
 
 
 # ==================================================================
