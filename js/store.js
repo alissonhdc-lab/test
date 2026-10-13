@@ -187,6 +187,9 @@
     approveResult(id, username, password) {
       return apiPost(`/api/resultados/${id}/approve`, { username, password });
     },
+    approveAllResults(username, password) {
+      return apiPost(`/api/resultados/approve-all`, { username, password });
+    },
 
     // ---- usuários ----
     deleteUser(id) {

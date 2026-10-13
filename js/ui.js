@@ -203,32 +203,95 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Dashboard
   // ------------------------------------------------------------------
-  function renderDashboard(db) {
+  function renderDashboard(db, session, dashboardState) {
     const { util } = global.RTQC;
-    const rows = db.routines
+    const state = dashboardState || {};
+    const sortKey = state.sortKey || null;
+    const sortDir = state.sortDir === -1 ? -1 : 1;
+    const filter = state.filter || null;
+    const showPending = !!state.showPending;
+    const isAdmin = !!session && session.role === "admin";
+
+    let rows = db.routines
       .filter((r) => r.active !== false)
       .map((r) => {
         const eq = db.equipments.find((e) => e.id === r.equipmentId);
         const due = util.routineDueStatus(r, db.results);
         return { routine: r, equipment: eq, due };
       })
-      .filter((x) => x.equipment)
-      .sort((a, b) => {
+      .filter((x) => x.equipment);
+
+    const pendingResults = db.results
+      .filter((r) => !r.approval)
+      .slice()
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+    const overdueCount = rows.filter((x) => x.due.status === "overdue").length;
+    const soonCount = rows.filter((x) => x.due.status === "soon").length;
+
+    if (filter === "overdue" || filter === "soon") {
+      rows = rows.filter((x) => x.due.status === filter);
+    }
+
+    // Ordenação: por padrão (sem coluna escolhida), atrasadas primeiro,
+    // depois vencendo em breve, por data de vencimento; clicando num
+    // cabeçalho de coluna, ordena só por ela (crescente, de novo decrescente).
+    function sortValue(x, key) {
+      switch (key) {
+        case "equipment":
+          return (x.equipment.name || "").toLowerCase();
+        case "routine":
+          return (x.routine.name || "").toLowerCase();
+        case "frequency":
+          return (FREQUENCIES[x.routine.frequency] && FREQUENCIES[x.routine.frequency].days) || 0;
+        case "last":
+          return x.due.last ? x.due.last.date : "";
+        case "next":
+          return x.due.nextDue ? x.due.nextDue.getTime() : Infinity;
+        case "status":
+          return { overdue: 0, soon: 1, unknown: 2, ok: 3 }[x.due.status];
+        default:
+          return 0;
+      }
+    }
+    if (sortKey) {
+      rows = rows.slice().sort((a, b) => {
+        const va = sortValue(a, sortKey);
+        const vb = sortValue(b, sortKey);
+        if (va < vb) return -1 * sortDir;
+        if (va > vb) return 1 * sortDir;
+        return 0;
+      });
+    } else {
+      rows = rows.slice().sort((a, b) => {
         const order = { overdue: 0, soon: 1, unknown: 2, ok: 3 };
         return order[a.due.status] - order[b.due.status] || (a.due.nextDue || 0) - (b.due.nextDue || 0);
       });
+    }
 
-    const pendingApprovals = db.results.filter((r) => !r.approval).length;
-    const overdueCount = rows.filter((r) => r.due.status === "overdue").length;
-    const soonCount = rows.filter((r) => r.due.status === "soon").length;
+    function sortableTh(label, key) {
+      const active = sortKey === key;
+      const arrow = active ? (sortDir === 1 ? " ▲" : " ▼") : "";
+      return `<th class="sortable-th" data-action="sort-dashboard" data-key="${key}">${esc(label)}${arrow}</th>`;
+    }
 
     const statCards = `
       <div class="stat-grid">
         <div class="stat-card"><div class="stat-value">${db.equipments.length}</div><div class="stat-label">Equipamentos</div></div>
         <div class="stat-card"><div class="stat-value">${db.routines.filter((r) => r.active !== false).length}</div><div class="stat-label">Rotinas de CQ ativas</div></div>
-        <div class="stat-card stat-danger"><div class="stat-value">${overdueCount}</div><div class="stat-label">Rotinas atrasadas</div></div>
-        <div class="stat-card stat-warning"><div class="stat-value">${soonCount}</div><div class="stat-label">Vencendo em breve</div></div>
-        <div class="stat-card stat-muted"><div class="stat-value">${pendingApprovals}</div><div class="stat-label">Resultados sem aprovação</div></div>
+        <div class="stat-card stat-danger stat-clickable ${filter === "overdue" ? "stat-card-active" : ""}" data-action="filter-dashboard" data-filter="overdue" title="Clique para filtrar a lista abaixo">
+          <div class="stat-value">${overdueCount}</div><div class="stat-label">Rotinas atrasadas</div>
+        </div>
+        <div class="stat-card stat-warning stat-clickable ${filter === "soon" ? "stat-card-active" : ""}" data-action="filter-dashboard" data-filter="soon" title="Clique para filtrar a lista abaixo">
+          <div class="stat-value">${soonCount}</div><div class="stat-label">Vencendo em breve</div>
+        </div>
+        <div class="stat-card stat-muted stat-clickable ${showPending ? "stat-card-active" : ""}" data-action="toggle-pending-approvals" title="Clique para ver a lista">
+          <div class="stat-value">${pendingResults.length}</div><div class="stat-label">Resultados sem aprovação</div>
+          ${
+            isAdmin && pendingResults.length > 0
+              ? `<button type="button" class="btn btn-small mt" data-action="approve-all-results">✔ Aprovar todos</button>`
+              : ""
+          }
+        </div>
       </div>`;
 
     const tableRows = rows
@@ -246,6 +309,22 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       )
       .join("");
 
+    const pendingRows = pendingResults
+      .slice(0, 50)
+      .map((r) => {
+        const routine = db.routines.find((x) => x.id === r.routineId);
+        const eq = routine ? db.equipments.find((e) => e.id === routine.equipmentId) : null;
+        return `
+        <tr>
+          <td>${eq ? `<a href="#/equipamentos/${eq.id}">${esc(eq.name)}</a>` : "—"}</td>
+          <td>${routine && eq ? `<a href="#/equipamentos/${eq.id}/rotinas/${routine.id}">${esc(routine.name)}</a>` : esc(routine ? routine.name : "—")}</td>
+          <td>${fmtDate(r.date)}</td>
+          <td>${esc(r.performedByName || "")}</td>
+          <td>${isAdmin ? `<button class="icon-btn" data-action="approve-result" data-id="${r.id}" title="Aprovar">✔</button>` : ""}</td>
+        </tr>`;
+      })
+      .join("");
+
     return `
       <div class="page-header">
         <h2>Painel de Controle</h2>
@@ -254,14 +333,47 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       <div class="panel">
         <div class="panel-header"><h3>Rotinas de CQ — próximos vencimentos</h3></div>
         ${
+          filter
+            ? `<p class="muted small">Filtrando por: <b>${filter === "overdue" ? "rotinas atrasadas" : "vencendo em breve"}</b> —
+               <button type="button" class="filter-clear-btn" data-action="filter-dashboard" data-filter="${filter}">limpar filtro</button></p>`
+            : ""
+        }
+        ${
           rows.length === 0
-            ? `<div class="empty-state">Nenhuma rotina cadastrada ainda. Vá em <a href="#/equipamentos">Equipamentos</a> para adicionar seu primeiro equipamento e rotina de CQ.</div>`
+            ? `<div class="empty-state">${
+                filter
+                  ? "Nenhuma rotina nessa condição."
+                  : 'Nenhuma rotina cadastrada ainda. Vá em <a href="#/equipamentos">Equipamentos</a> para adicionar seu primeiro equipamento e rotina de CQ.'
+              }</div>`
             : `<table class="data-table">
-                <thead><tr><th>Equipamento</th><th>Rotina</th><th>Frequência</th><th>Última execução</th><th>Próxima prevista</th><th>Status</th></tr></thead>
+                <thead><tr>
+                  ${sortableTh("Equipamento", "equipment")}
+                  ${sortableTh("Rotina", "routine")}
+                  ${sortableTh("Frequência", "frequency")}
+                  ${sortableTh("Última execução", "last")}
+                  ${sortableTh("Próxima prevista", "next")}
+                  ${sortableTh("Status", "status")}
+                </tr></thead>
                 <tbody>${tableRows}</tbody>
               </table>`
         }
-      </div>`;
+      </div>
+      ${
+        showPending
+          ? `<div class="panel">
+              <div class="panel-header"><h3>Resultados pendentes de aprovação</h3></div>
+              ${
+                pendingResults.length === 0
+                  ? `<div class="empty-state">Nenhum resultado pendente de aprovação.</div>`
+                  : `<table class="data-table">
+                      <thead><tr><th>Equipamento</th><th>Rotina</th><th>Data</th><th>Executado por</th><th></th></tr></thead>
+                      <tbody>${pendingRows}</tbody>
+                    </table>
+                    ${pendingResults.length > 50 ? `<p class="muted small">Mostrando os 50 mais recentes de ${pendingResults.length}.</p>` : ""}`
+              }
+            </div>`
+          : ""
+      }`;
   }
 
   // ------------------------------------------------------------------
@@ -1524,6 +1636,24 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     </form>`;
   }
 
+  function approveAllFormHtml(count) {
+    return `
+    <form id="approve-all-form" class="stacked-form">
+      <p class="muted">Isto vai aprovar de uma vez <b>${count}</b> resultado(s) ainda pendente(s), todos carimbados com a mesma assinatura eletrônica (usuário/senha abaixo). Use com cuidado — revise antes os resultados reprovados/fora de tolerância, se houver.</p>
+      <label>Usuário
+        <input type="text" name="username" required autocomplete="username" />
+      </label>
+      <label>Senha
+        <input type="password" name="password" required autocomplete="current-password" />
+      </label>
+      <div id="approve-all-error" class="form-error"></div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-action="close-modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Aprovar todos</button>
+      </div>
+    </form>`;
+  }
+
   // ------------------------------------------------------------------
   // Usuários
   // ------------------------------------------------------------------
@@ -1750,6 +1880,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     resultDetailHtml,
     winstonLutzImageDetails,
     approvalFormHtml,
+    approveAllFormHtml,
     renderUsers,
     userFormHtml,
     resetPasswordFormHtml,

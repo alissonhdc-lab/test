@@ -771,6 +771,20 @@ def set_result_approval(result_id, approval):
             )
 
 
+def approve_all_pending_results(approval):
+    """Aprova de uma vez todos os resultados ainda sem aprovação (usado pelo
+    botão "Aprovar todos" do card "Resultados sem aprovação" no painel) —
+    mesma assinatura eletrônica (usuário/senha já verificados por quem
+    chamou) carimbada em todos. Retorna quantos foram aprovados."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE results SET approval_user_id=?, approval_username=?, approval_full_name=?, approval_at=? "
+            "WHERE approval_user_id IS NULL",
+            (approval["userId"], approval["username"], approval["fullName"], approval["approvedAt"]),
+        )
+        return cur.rowcount
+
+
 def delete_result(result_id):
     with get_conn() as conn:
         conn.execute("DELETE FROM results WHERE id = ?", (result_id,))

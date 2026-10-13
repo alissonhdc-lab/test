@@ -15,6 +15,9 @@
   let lastRoutineView = null; // { routineId, routine, filteredResults } — usado por drawTrendChart/resize
   let currentAssetsByType = {}; // preenchido ao abrir o modal de rotina/resultado, usado pelos campos "asset-select"
   let currentSncTemplates = []; // preenchido ao abrir o modal de rotina, usado pelo campo "snc-template-select"
+  let dashboardSort = { key: null, dir: 1 }; // coluna/sentido escolhido clicando no cabeçalho da tabela do painel
+  let dashboardFilter = null; // null | "overdue" | "soon" — clique nos cards "Rotinas atrasadas"/"Vencendo em breve"
+  let dashboardShowPending = false; // clique no card "Resultados sem aprovação"
 
   // Lê os campos chartStyle__* do formulário de rotina, caindo de volta ao
   // padrão do catálogo sempre que o campo estiver vazio/inválido (ex.:
@@ -181,7 +184,7 @@
     let content = "";
     let watchFolders = [];
     if (route === "dashboard") {
-      content = ui.renderDashboard(db);
+      content = ui.renderDashboard(db, session, { sortKey: dashboardSort.key, sortDir: dashboardSort.dir, filter: dashboardFilter, showPending: dashboardShowPending });
     } else if (route === "equipamentos" && parts.length === 1) {
       content = ui.renderEquipmentsList(db, session);
     } else if (route === "equipamentos" && parts.length === 2) {
@@ -246,7 +249,7 @@
     } else if (route === "ajuda") {
       content = ui.renderHelp();
     } else {
-      content = ui.renderDashboard(db);
+      content = ui.renderDashboard(db, session, { sortKey: dashboardSort.key, sortDir: dashboardSort.dir, filter: dashboardFilter, showPending: dashboardShowPending });
     }
 
     appRoot.innerHTML = ui.renderShell(route, session, content);
@@ -525,6 +528,28 @@
       }
       case "approve-result":
         openApprovalModal(el.dataset.id);
+        break;
+      case "approve-all-results": {
+        const db = await store.get();
+        const count = db.results.filter((r) => !r.approval).length;
+        openApproveAllModal(count);
+        break;
+      }
+      case "sort-dashboard": {
+        const key = el.dataset.key;
+        dashboardSort = dashboardSort.key === key ? { key, dir: -dashboardSort.dir } : { key, dir: 1 };
+        render();
+        break;
+      }
+      case "filter-dashboard": {
+        const clicked = el.dataset.filter;
+        dashboardFilter = dashboardFilter === clicked ? null : clicked;
+        render();
+        break;
+      }
+      case "toggle-pending-approvals":
+        dashboardShowPending = !dashboardShowPending;
+        render();
         break;
       case "delete-result":
         modal.confirmModal({
@@ -1339,6 +1364,25 @@
       try {
         const updated = await store.approveResult(resultId, fd.get("username"), fd.get("password"));
         modal.toast(`Resultado aprovado por ${updated.approval.fullName}.`, "success");
+        modal.closeModal();
+        render();
+      } catch (err) {
+        errorBox.textContent = err.message;
+      }
+    });
+  }
+
+  function openApproveAllModal(count) {
+    modal.openModal({ title: "Aprovar todos os resultados pendentes", bodyHtml: ui.approveAllFormHtml(count) });
+    const form = document.getElementById("approve-all-form");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const errorBox = document.getElementById("approve-all-error");
+      errorBox.textContent = "";
+      try {
+        const result = await store.approveAllResults(fd.get("username"), fd.get("password"));
+        modal.toast(`${result.approvedCount} resultado(s) aprovado(s).`, "success");
         modal.closeModal();
         render();
       } catch (err) {

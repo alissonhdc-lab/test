@@ -426,6 +426,25 @@ def approve_resultado(result_id: str, data: dict = Body(...), _: dict = Depends(
     return db.get_result(result_id)
 
 
+@app.post("/api/resultados/approve-all")
+def approve_all_resultados(data: dict = Body(...), _: dict = Depends(get_current_user)):
+    """Aprova de uma vez todos os resultados pendentes — usado pelo botão
+    "Aprovar todos" ao lado do card "Resultados sem aprovação" no painel."""
+    signer = auth.verify_credentials(data.get("username", ""), data.get("password", ""))
+    if not signer:
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos para assinatura de aprovação.")
+    if signer.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Somente um administrador pode aprovar resultados.")
+    approval = {
+        "userId": signer["id"],
+        "username": signer["username"],
+        "fullName": signer["fullName"],
+        "approvedAt": db.now_iso(),
+    }
+    count = db.approve_all_pending_results(approval)
+    return {"approvedCount": count}
+
+
 @app.delete("/api/resultados/{result_id}")
 def delete_resultado(result_id: str, user: dict = Depends(get_current_user)):
     result = db.get_result(result_id)
