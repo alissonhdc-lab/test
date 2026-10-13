@@ -146,10 +146,24 @@
       svg.appendChild(label);
     });
 
-    // Faixas de ação/tolerância — apenas quando uma única série está
-    // selecionada (com mais de uma métrica ao mesmo tempo, cada uma teria
-    // escala/unidade diferente e as faixas sobrepostas confundiriam mais
-    // do que ajudariam). Aparecem assim que a grandeza é marcada na lista.
+    // Faixas de ação/tolerância — quando uma única série está selecionada,
+    // ou quando várias estão e TODAS compartilham exatamente o mesmo nível
+    // de ação/tolerância (mesmos limites e mesma unidade) — ex.: várias
+    // grandezas do teste diário que usam ±3%/±5%. Com métricas de
+    // configurações diferentes ao mesmo tempo, a faixa fica ambígua (cada
+    // uma teria um limite diferente) e por isso não é desenhada.
+    function sharedBandSeries(allSeries) {
+      if (allSeries.length === 0) return null;
+      const bandSignature = (s) =>
+        JSON.stringify([s.actionLow, s.actionHigh, s.toleranceLow, s.toleranceHigh, s.toleranceMax, s.toleranceMin, s.unit]);
+      const hasAnyBand = (s) =>
+        [s.actionLow, s.actionHigh, s.toleranceLow, s.toleranceHigh, s.toleranceMax, s.toleranceMin].some((v) => typeof v === "number");
+      if (!hasAnyBand(allSeries[0])) return null;
+      const first = bandSignature(allSeries[0]);
+      if (!allSeries.every((s) => bandSignature(s) === first)) return null;
+      return allSeries[0];
+    }
+
     const drawBand = (low, high, cls) => {
       if (typeof low !== "number" || typeof high !== "number") return;
       const rect = document.createElementNS(svgns, "rect");
@@ -183,8 +197,9 @@
       }
     };
 
-    if (series.length === 1) {
-      const s = series[0];
+    const bandSeries = sharedBandSeries(series);
+    if (bandSeries) {
+      const s = bandSeries;
       const unitSuffix = !s.unit ? "" : s.unit === "%" ? "%" : ` ${s.unit}`;
       if (typeof s.actionLow === "number" && typeof s.actionHigh === "number") {
         // Três zonas visuais: tolerância (âmbar, mais larga) por baixo,
