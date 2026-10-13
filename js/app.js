@@ -16,6 +16,25 @@
   let currentAssetsByType = {}; // preenchido ao abrir o modal de rotina/resultado, usado pelos campos "asset-select"
   let currentSncTemplates = []; // preenchido ao abrir o modal de rotina, usado pelo campo "snc-template-select"
 
+  // Lê os campos chartStyle__* do formulário de rotina, caindo de volta ao
+  // padrão do catálogo sempre que o campo estiver vazio/inválido (ex.:
+  // enquanto o técnico apaga o número para digitar outro) — sem isso um
+  // parseFloat(NaN) ia parar num atributo SVG inválido (r="NaN").
+  function readChartStyleFromForm(fd) {
+    const d = catalog.DEFAULT_CHART_STYLE;
+    const num = (key, fallback) => {
+      const v = parseFloat(fd.get(key));
+      return Number.isNaN(v) ? fallback : v;
+    };
+    return {
+      pointRadius: num("chartStyle__pointRadius", d.pointRadius),
+      lineWidth: num("chartStyle__lineWidth", d.lineWidth),
+      showLine: fd.get("chartStyle__showLine") === "on",
+      lineOpacityPct: num("chartStyle__lineOpacityPct", d.lineOpacityPct),
+      pointOpacityPct: num("chartStyle__pointOpacityPct", d.pointOpacityPct),
+    };
+  }
+
   function groupAssetsByType(assets) {
     const byType = {};
     (assets || []).forEach((a) => {
@@ -906,13 +925,7 @@
       const previewContainer = document.getElementById("chart-style-preview");
       if (!previewContainer) return;
       const fd = new FormData(form);
-      const style = {
-        pointRadius: parseFloat(fd.get("chartStyle__pointRadius")),
-        lineWidth: parseFloat(fd.get("chartStyle__lineWidth")),
-        showLine: fd.get("chartStyle__showLine") === "on",
-        lineOpacityPct: parseFloat(fd.get("chartStyle__lineOpacityPct")),
-        pointOpacityPct: parseFloat(fd.get("chartStyle__pointOpacityPct")),
-      };
+      const style = readChartStyleFromForm(fd);
       const dates = ["2026-08-01", "2026-08-15", "2026-09-01", "2026-09-15", "2026-10-01", "2026-10-13"];
       const sample = [0.8, 1.6, -1.2, 2.4, 0.3, -2.8];
       chart.renderTrendChart(previewContainer, {
@@ -1032,13 +1045,7 @@
           .filter(Boolean);
       }
 
-      const chartStyle = {
-        pointRadius: parseFloat(fd.get("chartStyle__pointRadius")),
-        lineWidth: parseFloat(fd.get("chartStyle__lineWidth")),
-        showLine: fd.get("chartStyle__showLine") === "on",
-        lineOpacityPct: parseFloat(fd.get("chartStyle__lineOpacityPct")),
-        pointOpacityPct: parseFloat(fd.get("chartStyle__pointOpacityPct")),
-      };
+      const chartStyle = readChartStyleFromForm(fd);
 
       const data = {
         equipmentId,
