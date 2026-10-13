@@ -897,6 +897,45 @@
     });
     syncConditionalRequired();
     const form = document.getElementById("routine-form");
+
+    // Pré-visualização da aparência do gráfico: o modal cobre a tela
+    // inteira, então sem isso o técnico muda os campos e não vê nenhum
+    // efeito até salvar e fechar — a prévia mostra na hora, com dados de
+    // exemplo, exatamente a mesma renderização que o gráfico real vai usar.
+    function drawChartStylePreview() {
+      const previewContainer = document.getElementById("chart-style-preview");
+      if (!previewContainer) return;
+      const fd = new FormData(form);
+      const style = {
+        pointRadius: parseFloat(fd.get("chartStyle__pointRadius")),
+        lineWidth: parseFloat(fd.get("chartStyle__lineWidth")),
+        showLine: fd.get("chartStyle__showLine") === "on",
+        lineOpacityPct: parseFloat(fd.get("chartStyle__lineOpacityPct")),
+        pointOpacityPct: parseFloat(fd.get("chartStyle__pointOpacityPct")),
+      };
+      const dates = ["2026-08-01", "2026-08-15", "2026-09-01", "2026-09-15", "2026-10-01", "2026-10-13"];
+      const sample = [0.8, 1.6, -1.2, 2.4, 0.3, -2.8];
+      chart.renderTrendChart(previewContainer, {
+        height: 150,
+        series: [
+          {
+            label: "Exemplo",
+            unit: "%",
+            points: dates.map((x, i) => ({ x, y: sample[i] })),
+            actionLow: -3,
+            actionHigh: 3,
+            toleranceLow: -5,
+            toleranceHigh: 5,
+          },
+        ],
+        style,
+      });
+    }
+    drawChartStylePreview();
+    form.addEventListener("input", (e) => {
+      if (e.target.name && e.target.name.startsWith("chartStyle__")) drawChartStylePreview();
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(form);

@@ -824,6 +824,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       <label class="checkbox-label">
         <input type="checkbox" name="chartStyle__showLine" ${s.showLine ? "checked" : ""} /> Mostrar linha entre os pontos
       </label>
+      <div class="muted small mt">Pré-visualização (dados de exemplo) — atualiza ao mudar os campos acima:</div>
+      <div id="chart-style-preview" class="chart-container"></div>
     </fieldset>`;
   }
 
