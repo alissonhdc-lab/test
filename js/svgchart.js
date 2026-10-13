@@ -218,7 +218,7 @@
         const circle = document.createElementNS(svgns, "circle");
         circle.setAttribute("cx", xScale(new Date(p.x).getTime()));
         circle.setAttribute("cy", yScale(p.y));
-        circle.setAttribute("r", 4);
+        circle.setAttribute("r", 3);
         circle.setAttribute("class", "chart-point");
         circle.setAttribute("fill", color);
         const title = document.createElementNS(svgns, "title");
