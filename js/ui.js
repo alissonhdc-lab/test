@@ -13,6 +13,7 @@
     MANUAL_TEST_TYPE,
     DOSIMETRY_TRS398_TYPE,
     DAILY_SNC_TYPE,
+    DEFAULT_CHART_STYLE,
     getModulesForType,
     getModuleById,
     groupModules,
@@ -801,6 +802,31 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     </div>`;
   }
 
+  function chartStyleFieldsHtml(chartStyle) {
+    const s = Object.assign({}, DEFAULT_CHART_STYLE, chartStyle || {});
+    return `
+    <fieldset class="chart-style-fieldset">
+      <legend>Aparência do gráfico de tendência</legend>
+      <div class="form-grid-2">
+        <label>Tamanho do ponto (px)
+          <input type="number" min="0" max="10" step="0.5" name="chartStyle__pointRadius" value="${esc(s.pointRadius)}" />
+        </label>
+        <label>Espessura da linha (px)
+          <input type="number" min="0" max="6" step="0.5" name="chartStyle__lineWidth" value="${esc(s.lineWidth)}" />
+        </label>
+        <label>Transparência da linha (%)
+          <input type="number" min="0" max="100" step="5" name="chartStyle__lineOpacityPct" value="${esc(s.lineOpacityPct)}" />
+        </label>
+        <label>Transparência do ponto (%)
+          <input type="number" min="0" max="100" step="5" name="chartStyle__pointOpacityPct" value="${esc(s.pointOpacityPct)}" />
+        </label>
+      </div>
+      <label class="checkbox-label">
+        <input type="checkbox" name="chartStyle__showLine" ${s.showLine ? "checked" : ""} /> Mostrar linha entre os pontos
+      </label>
+    </fieldset>`;
+  }
+
   function routineFormHtml(equipment, routine, assetsByType, sncTemplates) {
     const r = routine || {};
     assetsByType = assetsByType || {};
@@ -882,6 +908,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <p class="muted small">Defina as métricas que serão preenchidas manualmente a cada execução (ex.: Output %, Atividade da fonte, etc.).</p>
         ${manualMetricsEditorHtml(r.metrics)}
       </div>
+
+      ${chartStyleFieldsHtml(r.chartStyle)}
 
       <label>Observações / protocolo de referência
         <textarea name="notes" rows="2">${esc(r.notes || "")}</textarea>

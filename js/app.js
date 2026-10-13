@@ -287,7 +287,7 @@
       })
       .filter(Boolean);
 
-    chart.renderTrendChart(container, { series });
+    chart.renderTrendChart(container, { series, style: routine.chartStyle });
   }
 
   // ------------------------------------------------------------------
@@ -993,6 +993,14 @@
           .filter(Boolean);
       }
 
+      const chartStyle = {
+        pointRadius: parseFloat(fd.get("chartStyle__pointRadius")),
+        lineWidth: parseFloat(fd.get("chartStyle__lineWidth")),
+        showLine: fd.get("chartStyle__showLine") === "on",
+        lineOpacityPct: parseFloat(fd.get("chartStyle__lineOpacityPct")),
+        pointOpacityPct: parseFloat(fd.get("chartStyle__pointOpacityPct")),
+      };
+
       const data = {
         equipmentId,
         name: fd.get("name"),
@@ -1001,6 +1009,7 @@
         moduleId: testType === "pylinac" ? fd.get("moduleId") : null,
         params,
         metrics,
+        chartStyle,
         notes: fd.get("notes"),
         active: fd.get("active") === "on",
       };

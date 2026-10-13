@@ -11,6 +11,17 @@
 
   const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
 
+  // Aparência padrão do gráfico (sobrescrita por routine.chartStyle, lida
+  // no modal de configuração da rotina) — tamanho do ponto, espessura da
+  // linha, se a linha aparece ou não, e transparência de linha/ponto.
+  const DEFAULT_STYLE = {
+    pointRadius: 3,
+    lineWidth: 2,
+    showLine: true,
+    lineOpacityPct: 100,
+    pointOpacityPct: 100,
+  };
+
   function isAngleUnit(unit) {
     return unit === "°" || unit === "graus";
   }
@@ -45,6 +56,7 @@
    */
   function renderTrendChart(container, opts) {
     const series = (opts.series || []).filter((s) => s.points && s.points.length > 0);
+    const style = Object.assign({}, DEFAULT_STYLE, opts.style || {});
     container.innerHTML = "";
 
     if (series.length === 0) {
@@ -201,26 +213,34 @@
       }
     }
 
-    // Séries (linhas + pontos)
+    // Séries (linhas + pontos) — tamanho do ponto, espessura/transparência
+    // da linha, exibir linha ou não, e transparência do ponto vêm de
+    // routine.chartStyle (configurável no cadastro da rotina).
     series.forEach((s, idx) => {
       const color = COLORS[idx % COLORS.length];
       const pts = [...s.points].sort((a, b) => new Date(a.x) - new Date(b.x));
-      const pathD = pts
-        .map((p, i) => `${i === 0 ? "M" : "L"} ${xScale(new Date(p.x).getTime())} ${yScale(p.y)}`)
-        .join(" ");
-      const path = document.createElementNS(svgns, "path");
-      path.setAttribute("d", pathD);
-      path.setAttribute("class", "chart-line");
-      path.setAttribute("stroke", color);
-      svg.appendChild(path);
+
+      if (style.showLine && style.lineWidth > 0) {
+        const pathD = pts
+          .map((p, i) => `${i === 0 ? "M" : "L"} ${xScale(new Date(p.x).getTime())} ${yScale(p.y)}`)
+          .join(" ");
+        const path = document.createElementNS(svgns, "path");
+        path.setAttribute("d", pathD);
+        path.setAttribute("class", "chart-line");
+        path.setAttribute("stroke", color);
+        path.style.strokeWidth = `${style.lineWidth}px`;
+        path.style.opacity = style.lineOpacityPct / 100;
+        svg.appendChild(path);
+      }
 
       pts.forEach((p) => {
         const circle = document.createElementNS(svgns, "circle");
         circle.setAttribute("cx", xScale(new Date(p.x).getTime()));
         circle.setAttribute("cy", yScale(p.y));
-        circle.setAttribute("r", 3);
+        circle.setAttribute("r", style.pointRadius);
         circle.setAttribute("class", "chart-point");
         circle.setAttribute("fill", color);
+        circle.style.opacity = style.pointOpacityPct / 100;
         const title = document.createElementNS(svgns, "title");
         title.textContent = `${s.label}: ${fmtValue(p.y, s.unit)}${s.unit ? " " + s.unit : ""} em ${fmtDate(p.x)}`;
         circle.appendChild(title);

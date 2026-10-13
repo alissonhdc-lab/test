@@ -220,9 +220,20 @@ CREATE TABLE IF NOT EXISTS asset_measurements (
 """
 
 
+def _ensure_column(conn, table, column, coltype_sql):
+    """Adiciona uma coluna a uma tabela já existente (CREATE TABLE IF NOT
+    EXISTS não altera uma tabela que já existe de uma versão anterior do
+    schema) — assim bancos rtqc.db já em uso continuam abrindo depois de
+    atualizações que acrescentam campos novos."""
+    cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype_sql}")
+
+
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        _ensure_column(conn, "routines", "chart_style_json", "TEXT")
 
 
 # ------------------------------------------------------------------
@@ -265,6 +276,7 @@ def _row_to_routine(row):
         "moduleId": row["module_id"],
         "params": json.loads(row["params_json"] or "{}"),
         "metrics": json.loads(row["metrics_json"] or "[]"),
+        "chartStyle": json.loads(row["chart_style_json"]) if row["chart_style_json"] else {},
         "notes": row["notes"],
         "active": bool(row["active"]),
         "createdAt": row["created_at"],
@@ -658,7 +670,7 @@ def create_routine(data):
     rid = new_id()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO routines (id,equipment_id,name,frequency,test_type,module_id,params_json,metrics_json,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO routines (id,equipment_id,name,frequency,test_type,module_id,params_json,metrics_json,chart_style_json,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 rid,
                 data["equipmentId"],
@@ -668,6 +680,7 @@ def create_routine(data):
                 data.get("moduleId"),
                 json.dumps(data.get("params") or {}),
                 json.dumps(data.get("metrics") or []),
+                json.dumps(data.get("chartStyle") or {}),
                 data.get("notes"),
                 1 if data.get("active", True) else 0,
                 now_iso(),
@@ -684,6 +697,7 @@ def update_routine(rid, data):
         "module_id": data.get("moduleId"),
         "params_json": json.dumps(data.get("params") or {}),
         "metrics_json": json.dumps(data.get("metrics") or []),
+        "chart_style_json": json.dumps(data.get("chartStyle") or {}),
         "notes": data.get("notes"),
         "active": 1 if data.get("active", True) else 0,
     }
@@ -860,7 +874,7 @@ def import_backup(data):
                     )
                 for r in data.get("routines", []):
                     conn.execute(
-                        "INSERT INTO routines (id,equipment_id,name,frequency,test_type,module_id,params_json,metrics_json,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        "INSERT INTO routines (id,equipment_id,name,frequency,test_type,module_id,params_json,metrics_json,chart_style_json,notes,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             r.get("id") or new_id(),
                             r["equipmentId"],
@@ -870,6 +884,7 @@ def import_backup(data):
                             r.get("moduleId"),
                             json.dumps(r.get("params") or {}),
                             json.dumps(r.get("metrics") or []),
+                            json.dumps(r.get("chartStyle") or {}),
                             r.get("notes"),
                             1 if r.get("active", True) else 0,
                             r.get("createdAt") or now_iso(),

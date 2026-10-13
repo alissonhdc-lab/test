@@ -1104,6 +1104,18 @@
     ],
   };
 
+  // ------------------------------------------------------------------
+  // Aparência do gráfico de tendência — configurável por rotina
+  // (routine.chartStyle), com estes valores como padrão.
+  // ------------------------------------------------------------------
+  const DEFAULT_CHART_STYLE = {
+    pointRadius: 3,
+    lineWidth: 2,
+    showLine: true,
+    lineOpacityPct: 100,
+    pointOpacityPct: 100,
+  };
+
   function getModulesForType(equipmentType) {
     return PYLINAC_CATALOG.filter((m) => m.applicableTypes.includes(equipmentType));
   }
@@ -1130,6 +1142,7 @@
     MANUAL_TEST_TYPE,
     DOSIMETRY_TRS398_TYPE,
     DAILY_SNC_TYPE,
+    DEFAULT_CHART_STYLE,
     getModulesForType,
     getModuleById,
     groupModules,
