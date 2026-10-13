@@ -97,7 +97,7 @@
         const days = parseInt(filters.dateRange, 10);
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - days);
-        if (new Date(r.date) < cutoff) return false;
+        if (util.parseLocalDate(r.date) < cutoff) return false;
       }
       return true;
     });

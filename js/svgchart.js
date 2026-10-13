@@ -22,8 +22,14 @@
   }
 
   function fmtDate(iso) {
-    const d = new Date(iso);
-    return d.toLocaleDateString("pt-BR");
+    // Datas "YYYY-MM-DD" (sem horário, como result.date) são tratadas pelo
+    // construtor Date() como meia-noite UTC — em fusos atrás de UTC (ex.:
+    // Brasil) isso "puxa" a data para o dia anterior ao converter para
+    // horário local. Como é uma data de calendário (sem instante real),
+    // formatamos direto a partir dos componentes, sem passar por Date().
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    return new Date(iso).toLocaleDateString("pt-BR");
   }
 
   function fmtDateTime(iso) {
@@ -175,7 +181,7 @@
         circle.setAttribute("class", "chart-point");
         circle.setAttribute("fill", color);
         const title = document.createElementNS(svgns, "title");
-        title.textContent = `${s.label}: ${fmtValue(p.y, s.unit)}${s.unit ? " " + s.unit : ""} em ${fmtDateTime(p.x)}`;
+        title.textContent = `${s.label}: ${fmtValue(p.y, s.unit)}${s.unit ? " " + s.unit : ""} em ${fmtDate(p.x)}`;
         circle.appendChild(title);
         svg.appendChild(circle);
       });

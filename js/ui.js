@@ -35,8 +35,26 @@
     return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
+  function todayLocalISO() {
+    // new Date().toISOString() converte para UTC — em fusos atrás de UTC
+    // (ex.: Brasil) isso adianta a data nas últimas horas do dia (seria
+    // "amanhã" em vez de "hoje"). Usamos os componentes locais direto.
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
   function fmtDate(iso) {
     if (!iso) return "—";
+    // Datas "YYYY-MM-DD" (sem horário, como result.date) são tratadas pelo
+    // construtor Date() como meia-noite UTC — em fusos atrás de UTC (ex.:
+    // Brasil) isso "puxa" a data para o dia anterior ao converter para
+    // horário local. Como é uma data de calendário (sem instante real),
+    // formatamos direto a partir dos componentes, sem passar por Date().
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
     return new Date(iso).toLocaleDateString("pt-BR");
   }
 
@@ -552,7 +570,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           ? `<form id="measurement-form" class="stacked-form mt" data-asset-id="${asset.id}">
         <div class="form-grid-2">
           <label>Data da medição
-            <input type="date" name="measuredAt" required value="${new Date().toISOString().slice(0, 10)}" />
+            <input type="date" name="measuredAt" required value="${todayLocalISO()}" />
           </label>
           <label>Feixe / observação
             <input type="text" name="beamLabel" placeholder="Ex.: 6 MV Synergy X6" />
@@ -1276,7 +1294,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return `
     <form id="result-form" class="stacked-form" data-routine-id="${routine.id}">
       <label>Data da execução
-        <input type="date" name="date" required value="${new Date().toISOString().slice(0, 10)}" />
+        <input type="date" name="date" required value="${todayLocalISO()}" />
       </label>
       <label>Executado por
         <input type="text" name="performedByName" required placeholder="Nome de quem realizou o teste" />

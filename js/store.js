@@ -244,8 +244,19 @@
   // Cálculo de próxima data / status de vencimento de rotina (client-side,
   // não depende do backend — recebe os dados já carregados).
   // ------------------------------------------------------------------
+  function parseLocalDate(dateStr) {
+    // Datas "YYYY-MM-DD" (sem horário, como result.date) são tratadas pelo
+    // construtor Date() como meia-noite UTC. Em fusos atrás de UTC (ex.:
+    // Brasil), d.getDate()/d.setDate() leem/escrevem o dia já convertido
+    // para horário local — que fica um dia atrás do pretendido. Construindo
+    // a data já com ano/mês/dia locais evitamos essa conversão.
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return new Date(dateStr);
+  }
+
   function addDays(dateStr, days) {
-    const d = new Date(dateStr);
+    const d = parseLocalDate(dateStr);
     d.setDate(d.getDate() + days);
     return d;
   }
@@ -271,5 +282,5 @@
 
   global.RTQC = global.RTQC || {};
   global.RTQC.store = Store;
-  global.RTQC.util = { addDays, routineDueStatus };
+  global.RTQC.util = { addDays, routineDueStatus, parseLocalDate };
 })(window);
