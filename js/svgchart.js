@@ -70,6 +70,8 @@
       if (typeof s.toleranceHigh === "number") yValues.push(s.toleranceHigh);
       if (typeof s.toleranceMax === "number") yValues.push(s.toleranceMax);
       if (typeof s.toleranceMin === "number") yValues.push(s.toleranceMin);
+      if (typeof s.actionLow === "number") yValues.push(s.actionLow);
+      if (typeof s.actionHigh === "number") yValues.push(s.actionHigh);
     });
     let yMin = Math.min(...yValues);
     let yMax = Math.max(...yValues);
@@ -132,31 +134,70 @@
       svg.appendChild(label);
     });
 
-    // Faixa de tolerância — apenas quando uma única série está selecionada
+    // Faixas de ação/tolerância — apenas quando uma única série está
+    // selecionada (com mais de uma métrica ao mesmo tempo, cada uma teria
+    // escala/unidade diferente e as faixas sobrepostas confundiriam mais
+    // do que ajudariam). Aparecem assim que a grandeza é marcada na lista.
+    const drawBand = (low, high, cls) => {
+      if (typeof low !== "number" || typeof high !== "number") return;
+      const rect = document.createElementNS(svgns, "rect");
+      const yTop = yScale(Math.min(high, yMax));
+      const yBottom = yScale(Math.max(low, yMin));
+      rect.setAttribute("x", padding.left);
+      rect.setAttribute("y", yTop);
+      rect.setAttribute("width", width - padding.left - padding.right);
+      rect.setAttribute("height", Math.max(0, yBottom - yTop));
+      rect.setAttribute("class", cls);
+      svg.appendChild(rect);
+    };
+    const drawThresholdLine = (value, cls, text) => {
+      if (typeof value !== "number") return;
+      const y = yScale(value);
+      const line = document.createElementNS(svgns, "line");
+      line.setAttribute("x1", padding.left);
+      line.setAttribute("x2", width - padding.right);
+      line.setAttribute("y1", y);
+      line.setAttribute("y2", y);
+      line.setAttribute("class", cls);
+      svg.appendChild(line);
+      if (text) {
+        const label = document.createElementNS(svgns, "text");
+        label.setAttribute("x", width - padding.right - 4);
+        label.setAttribute("y", y - 4);
+        label.setAttribute("text-anchor", "end");
+        label.setAttribute("class", "chart-threshold-label");
+        label.textContent = text;
+        svg.appendChild(label);
+      }
+    };
+
     if (series.length === 1) {
       const s = series[0];
-      let low = null;
-      let high = null;
-      if (typeof s.toleranceLow === "number" && typeof s.toleranceHigh === "number") {
-        low = s.toleranceLow;
-        high = s.toleranceHigh;
-      } else if (typeof s.toleranceMax === "number") {
-        low = yMin;
-        high = s.toleranceMax;
-      } else if (typeof s.toleranceMin === "number") {
-        low = s.toleranceMin;
-        high = yMax;
-      }
-      if (low !== null && high !== null) {
-        const rect = document.createElementNS(svgns, "rect");
-        const yTop = yScale(Math.min(high, yMax));
-        const yBottom = yScale(Math.max(low, yMin));
-        rect.setAttribute("x", padding.left);
-        rect.setAttribute("y", yTop);
-        rect.setAttribute("width", width - padding.left - padding.right);
-        rect.setAttribute("height", Math.max(0, yBottom - yTop));
-        rect.setAttribute("class", "chart-tolerance-band");
-        svg.appendChild(rect);
+      const unitSuffix = !s.unit ? "" : s.unit === "%" ? "%" : ` ${s.unit}`;
+      if (typeof s.actionLow === "number" && typeof s.actionHigh === "number") {
+        // Três zonas visuais: tolerância (âmbar, mais larga) por baixo,
+        // nível de ação (verde, mais estreita) por cima — o que sobra fora
+        // de ambas (sem faixa) é reprovado.
+        drawBand(s.toleranceLow, s.toleranceHigh, "chart-tolerance-band-outer");
+        drawBand(s.actionLow, s.actionHigh, "chart-tolerance-band");
+        drawThresholdLine(s.actionLow, "chart-threshold-action");
+        drawThresholdLine(s.actionHigh, "chart-threshold-action", `nível de ação ±${fmtValue(s.actionHigh, s.unit)}${unitSuffix}`);
+        drawThresholdLine(s.toleranceLow, "chart-threshold-tolerance");
+        drawThresholdLine(s.toleranceHigh, "chart-threshold-tolerance", `tolerância ±${fmtValue(s.toleranceHigh, s.unit)}${unitSuffix}`);
+      } else {
+        let low = null;
+        let high = null;
+        if (typeof s.toleranceLow === "number" && typeof s.toleranceHigh === "number") {
+          low = s.toleranceLow;
+          high = s.toleranceHigh;
+        } else if (typeof s.toleranceMax === "number") {
+          low = yMin;
+          high = s.toleranceMax;
+        } else if (typeof s.toleranceMin === "number") {
+          low = s.toleranceMin;
+          high = yMax;
+        }
+        drawBand(low, high, "chart-tolerance-band");
       }
     }
 

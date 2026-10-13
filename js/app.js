@@ -275,9 +275,11 @@
           s.toleranceHigh = Number(m.tolHigh);
         }
         if (m.tolType === "action") {
-          // A banda mostrada no gráfico é a tolerância (limite duro) — o
-          // nível de ação (mais apertado) só aparece no ícone ⚠ por
-          // resultado, não como uma segunda faixa no gráfico.
+          // Duas faixas no gráfico: nível de ação (mais estreita, "ok") e
+          // tolerância (mais larga, limite duro) — sempre na mesma unidade
+          // da métrica (m.unit), nunca necessariamente "%".
+          s.actionLow = -Number(m.actionPct);
+          s.actionHigh = Number(m.actionPct);
           s.toleranceLow = -Number(m.tolerancePct);
           s.toleranceHigh = Number(m.tolerancePct);
         }
@@ -754,7 +756,8 @@
       const row = e.target.closest(".manual-metric-row");
       const index = row.dataset.manualRow;
       const tolSpan = row.querySelector(`[data-manual-tol="${index}"]`);
-      tolSpan.innerHTML = ui.toleranceInputsHtml("mm_" + index, e.target.value, {});
+      const unitInput = row.querySelector(`input[name="mm_unit_${index}"]`);
+      tolSpan.innerHTML = ui.toleranceInputsHtml("mm_" + index, e.target.value, {}, unitInput ? unitInput.value : "");
     }
     if (e.target.classList.contains("trend-metric-check")) {
       const parts = parseHash();

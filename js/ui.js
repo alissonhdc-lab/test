@@ -735,7 +735,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
                 <input type="hidden" name="metric__${m.key}__tolType" value="${esc(tolType)}" />
               </td>
               <td>${esc(m.unit || "—")}</td>
-              <td>${toleranceInputsHtml("metric__" + m.key, tolType, effective)}</td>
+              <td>${toleranceInputsHtml("metric__" + m.key, tolType, effective, m.unit)}</td>
             </tr>`;
           })
           .join("")}
@@ -743,7 +743,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     </table>`;
   }
 
-  function toleranceInputsHtml(prefix, tolType, saved) {
+  function toleranceInputsHtml(prefix, tolType, saved, unit) {
     saved = saved || {};
     if (tolType === "max") {
       return `≤ <input type="number" step="any" class="tol-input" name="${prefix}__tol" value="${esc(saved.tol !== undefined ? saved.tol : "")}" />`;
@@ -756,8 +756,13 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         e <input type="number" step="any" class="tol-input" name="${prefix}__tolHigh" value="${esc(saved.tolHigh !== undefined ? saved.tolHigh : "")}" />`;
     }
     if (tolType === "action") {
-      return `nível de ação ± <input type="number" step="any" class="tol-input" name="${prefix}__actionPct" value="${esc(saved.actionPct !== undefined ? saved.actionPct : "")}" />%
-        · tolerância ± <input type="number" step="any" class="tol-input" name="${prefix}__tolerancePct" value="${esc(saved.tolerancePct !== undefined ? saved.tolerancePct : "")}" />%`;
+      // Nível de ação/tolerância são sempre expressos na mesma unidade da
+      // grandeza (ex.: cm para desvio de tamanho de campo, % para desvio de
+      // dose) — nunca em "%" fixo, que não faz sentido para grandezas de
+      // dimensão.
+      const u = esc(unit || "");
+      return `nível de ação ± <input type="number" step="any" class="tol-input" name="${prefix}__actionPct" value="${esc(saved.actionPct !== undefined ? saved.actionPct : "")}" /> ${u}
+        · tolerância ± <input type="number" step="any" class="tol-input" name="${prefix}__tolerancePct" value="${esc(saved.tolerancePct !== undefined ? saved.tolerancePct : "")}" /> ${u}`;
     }
     if (tolType === "bool") {
       return `<span class="muted small">aprovado/reprovado manual</span>`;
@@ -791,7 +796,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       <input type="text" placeholder="Nome da métrica (ex.: Dose por UM)" name="mm_label_${index}" value="${esc(m.label || "")}" />
       <input type="text" placeholder="Unidade (ex.: cGy/UM)" name="mm_unit_${index}" value="${esc(m.unit || "")}" class="unit-input" />
       <select name="mm_toltype_${index}" data-action="manual-metric-toltype">${options}</select>
-      <span class="manual-metric-tol" data-manual-tol="${index}">${toleranceInputsHtml("mm_" + index, tolType, m)}</span>
+      <span class="manual-metric-tol" data-manual-tol="${index}">${toleranceInputsHtml("mm_" + index, tolType, m, m.unit)}</span>
       <button type="button" class="icon-btn" data-action="remove-manual-metric" data-index="${index}" title="Remover">🗑</button>
     </div>`;
   }
@@ -1329,7 +1334,11 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     if (m.tolType === "max" && m.tol !== undefined && m.tol !== null) return `≤ ${m.tol}`;
     if (m.tolType === "min" && m.tol !== undefined && m.tol !== null) return `≥ ${m.tol}`;
     if (m.tolType === "range" && m.tolLow !== undefined && m.tolLow !== null) return `${m.tolLow} a ${m.tolHigh}`;
-    if (m.tolType === "action" && m.actionPct !== undefined && m.actionPct !== null) return `ação ±${m.actionPct}% · tol. ±${m.tolerancePct}%`;
+    if (m.tolType === "action" && m.actionPct !== undefined && m.actionPct !== null) {
+      const u = m.unit || "%";
+      const suffix = u === "%" ? "%" : ` ${u}`;
+      return `ação ±${m.actionPct}${suffix} · tol. ±${m.tolerancePct}${suffix}`;
+    }
     return "";
   }
 
