@@ -451,6 +451,11 @@ MODULES = {
             "ctp515.roi_settings",
             "ctp515.roi_results",
         ],
+        # Figura com os módulos do fantoma lado a lado (HU uniformity, HU
+        # linearity, resolução espacial, baixo contraste, etc.) — o mesmo
+        # painel que plot_analyzed_image() do pylinac desenha, só que
+        # capturado como PNG para mostrar no resultado do teste.
+        "render_analyzed_image": True,
     },
     "quart": {
         "cls": pylinac.QuartDVT,

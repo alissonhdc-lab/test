@@ -803,6 +803,13 @@
       const unitInput = row.querySelector(`input[name="mm_unit_${index}"]`);
       tolSpan.innerHTML = ui.toleranceInputsHtml("mm_" + index, e.target.value, {}, unitInput ? unitInput.value : "");
     }
+    if (e.target.dataset.action === "pylinac-metric-toltype") {
+      const key = e.target.dataset.metricKey;
+      const row = e.target.closest("tr[data-metric-row]");
+      const tolCell = row.querySelector(`[data-metric-tol-cell="${key}"]`);
+      const unitInput = row.querySelector(`input[name="metric__${key}__unit"]`);
+      tolCell.innerHTML = ui.toleranceInputsHtml("metric__" + key, e.target.value, {}, unitInput ? unitInput.value : "");
+    }
     if (e.target.classList.contains("trend-metric-check")) {
       const parts = parseHash();
       const routineId = parts[3];

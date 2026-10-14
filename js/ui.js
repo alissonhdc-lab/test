@@ -821,13 +821,24 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       .join("");
   }
 
+  // Tipos de tolerância que fazem sentido para uma métrica numérica (nunca
+  // para uma métrica booleana — essa já vem aprovado/reprovado pronto do
+  // pylinac, calculado a partir dos parâmetros da rotina, ex.: hu_tolerance).
+  const NUMERIC_TOLTYPE_OPTIONS = [
+    ["info", "Somente informativo"],
+    ["max", "Valor máximo aceitável"],
+    ["min", "Valor mínimo aceitável"],
+    ["range", "Faixa aceitável (min–max)"],
+    ["action", "Nível de ação / tolerância"],
+  ];
+
   function moduleMetricsPreviewHtml(module, savedMetrics) {
     if (!module || !module.metrics) return "";
     const savedByKey = {};
     (savedMetrics || []).forEach((m) => (savedByKey[m.key] = m));
     return `
     <table class="mini-table">
-      <thead><tr><th>Métrica</th><th>Unidade</th><th>Tolerância</th></tr></thead>
+      <thead><tr><th>Métrica</th><th>Unidade</th><th>Tipo</th><th>Tolerância</th></tr></thead>
       <tbody>
         ${module.metrics
           .map((m) => {
@@ -840,15 +851,24 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
               actionPct: saved.actionPct !== undefined ? saved.actionPct : m.actionPct,
               tolerancePct: saved.tolerancePct !== undefined ? saved.tolerancePct : m.tolerancePct,
             };
+            // Métrica originalmente booleana (aprovado/reprovado calculado
+            // pelo próprio pylinac) não pode virar numérica — não há
+            // escolha de tipo, fica fixo.
+            const typeCell =
+              m.tolType === "bool"
+                ? `<span class="muted small">aprovado/reprovado</span><input type="hidden" name="metric__${m.key}__tolType" value="bool" />`
+                : `<select name="metric__${m.key}__tolType" data-action="pylinac-metric-toltype" data-metric-key="${m.key}">
+                    ${NUMERIC_TOLTYPE_OPTIONS.map(([v, l]) => `<option value="${v}" ${tolType === v ? "selected" : ""}>${l}</option>`).join("")}
+                  </select>`;
             return `
             <tr data-metric-row="${m.key}">
               <td>${esc(m.label)}
                 <input type="hidden" name="metric__${m.key}__label" value="${esc(m.label)}" />
                 <input type="hidden" name="metric__${m.key}__unit" value="${esc(m.unit || "")}" />
-                <input type="hidden" name="metric__${m.key}__tolType" value="${esc(tolType)}" />
               </td>
               <td>${esc(m.unit || "—")}</td>
-              <td>${toleranceInputsHtml("metric__" + m.key, tolType, effective, m.unit)}</td>
+              <td>${typeCell}</td>
+              <td data-metric-tol-cell="${m.key}">${toleranceInputsHtml("metric__" + m.key, tolType, effective, m.unit)}</td>
             </tr>`;
           })
           .join("")}
@@ -858,15 +878,16 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
 
   function toleranceInputsHtml(prefix, tolType, saved, unit) {
     saved = saved || {};
+    const u = esc(unit || "");
     if (tolType === "max") {
-      return `≤ <input type="number" step="any" class="tol-input" name="${prefix}__tol" value="${esc(saved.tol !== undefined ? saved.tol : "")}" />`;
+      return `≤ <input type="number" step="any" class="tol-input" name="${prefix}__tol" value="${esc(saved.tol !== undefined ? saved.tol : "")}" /> ${u}`;
     }
     if (tolType === "min") {
-      return `≥ <input type="number" step="any" class="tol-input" name="${prefix}__tol" value="${esc(saved.tol !== undefined ? saved.tol : "")}" />`;
+      return `≥ <input type="number" step="any" class="tol-input" name="${prefix}__tol" value="${esc(saved.tol !== undefined ? saved.tol : "")}" /> ${u}`;
     }
     if (tolType === "range") {
       return `entre <input type="number" step="any" class="tol-input" name="${prefix}__tolLow" value="${esc(saved.tolLow !== undefined ? saved.tolLow : "")}" />
-        e <input type="number" step="any" class="tol-input" name="${prefix}__tolHigh" value="${esc(saved.tolHigh !== undefined ? saved.tolHigh : "")}" />`;
+        e <input type="number" step="any" class="tol-input" name="${prefix}__tolHigh" value="${esc(saved.tolHigh !== undefined ? saved.tolHigh : "")}" /> ${u}`;
     }
     if (tolType === "action") {
       // Nível de ação/tolerância são sempre expressos na mesma unidade da
@@ -1644,7 +1665,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           analyzedImage
             ? `<h4 class="mt">Imagem analisada</h4>
                <div class="panel-inset analyzed-image-box">
-                 <img class="analyzed-image" src="data:image/png;base64,${analyzedImage}" alt="Imagem analisada: linhas ajustadas e círculo de menor diâmetro (wobble)" />
+                 <img class="analyzed-image" src="data:image/png;base64,${analyzedImage}" alt="Imagem analisada pelo pylinac" />
                </div>`
             : ""
         }
