@@ -505,10 +505,24 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 /* -------------------- Responsivo -------------------- */
 @media (max-width: 860px) {
   .app-shell { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; padding: 12px 16px; }
+  .sidebar { width: 100%; height: auto; position: static; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 12px 16px; }
   .sidebar-nav { flex-direction: row; flex-wrap: wrap; }
-  .sidebar-footer { display: none; }
+  /* Antes ficava escondido (display: none) — em celular isso tirava o
+     usuário logado e o botão "Sair" da tela por completo, sem nenhuma
+     outra forma de deslogar. Em vez de escondido, cai numa linha cheia
+     abaixo do menu (flex-basis: 100% só funciona porque o .sidebar acima
+     já ganhou flex-wrap, permitindo essa quebra de linha). */
+  .sidebar-footer { flex-basis: 100%; display: block; }
   .content { padding: 18px; }
   .form-grid-2, .params-grid { grid-template-columns: 1fr; }
   .manual-metric-row-main { grid-template-columns: 1fr; }
+  /* Os 4 tipos de teste em linha (flex, sem quebra) furavam a largura do
+     modal em telas estreitas, cortando a última opção. */
+  .test-type-fieldset { flex-direction: column; gap: 10px; }
+  /* Tabelas com várias colunas (histórico de resultados, rotinas do
+     painel, etc.) eram mais largas que a tela e empurravam a página
+     inteira para o lado (rolagem horizontal na página toda). Agora cada
+     tabela rola horizontalmente dentro da própria caixa, mantendo o
+     resto da página no lugar. */
+  .data-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
