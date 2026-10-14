@@ -604,9 +604,38 @@
           actionPct: 20,
           tolerancePct: 40,
         },
+        // Precisão geométrica: uma linha por nó medido (não a média) — uma
+        // linha isolada fora de tolerância pode ficar escondida numa média
+        // dentro da faixa aceitável. Ordem fixa de
+        // pylinac.ct.CTP404CP504.geometry_roi_settings (herdada por
+        // 503/504/600/604; o CatPhan 700 não tem esse módulo).
         {
-          key: "ctp404.geometry_deviation_mm",
-          label: "Desvio da precisão geométrica (medido vs. referência)",
+          key: "ctp404.geometry_deviation_Superior-Horizontal_mm",
+          label: "Precisão geométrica — linha superior-horizontal (desvio vs. referência)",
+          unit: "mm",
+          tolType: "action",
+          actionPct: 0.5,
+          tolerancePct: 1.0,
+        },
+        {
+          key: "ctp404.geometry_deviation_Inferior-Horizontal_mm",
+          label: "Precisão geométrica — linha inferior-horizontal (desvio vs. referência)",
+          unit: "mm",
+          tolType: "action",
+          actionPct: 0.5,
+          tolerancePct: 1.0,
+        },
+        {
+          key: "ctp404.geometry_deviation_Vertical-Esquerda_mm",
+          label: "Precisão geométrica — linha vertical-esquerda (desvio vs. referência)",
+          unit: "mm",
+          tolType: "action",
+          actionPct: 0.5,
+          tolerancePct: 1.0,
+        },
+        {
+          key: "ctp404.geometry_deviation_Vertical-Direita_mm",
+          label: "Precisão geométrica — linha vertical-direita (desvio vs. referência)",
           unit: "mm",
           tolType: "action",
           actionPct: 0.5,

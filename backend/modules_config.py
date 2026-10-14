@@ -160,25 +160,37 @@ def _catphan_hu_max_deviation(flat, params_dict=None):
     return flat
 
 
+# Ordem fixa de pylinac.ct.CTP404CP504.geometry_roi_settings (herdada, sem
+# sobrescrita, pelos modelos 503/504/600/604 — cada um dos 4 "nós"/linhas
+# do módulo de precisão geométrica, na mesma ordem em que
+# ctp404.line_distances_mm[0..3] é montado). O CatPhan 700 não tem esse
+# módulo (geometry_roi_settings vazio no pylinac), então simplesmente não
+# aparecem linhas pra ele.
+CATPHAN_GEOMETRY_LINE_NAMES = ["Superior-Horizontal", "Inferior-Horizontal", "Vertical-Esquerda", "Vertical-Direita"]
+
+
 def _catphan_geometry_deviation(flat, params_dict=None):
-    """postprocess: desvio da distância média entre os 4 nós do módulo de
-    geometria (ctp404.avg_line_distance_mm, já medido pelo pylinac) em
-    relação ao valor de referência da distância real entre os nós — por
+    """postprocess: desvio de CADA uma das 4 linhas do módulo de geometria
+    (ctp404.line_distances_mm[0..3], já medidas pelo pylinac — uma por nó)
+    em relação ao valor de referência da distância real entre os nós — por
     padrão 50 mm (pylinac.ct.GeometricLine.nominal_length_mm, igual em
     todos os modelos de CatPhan), mas editável na rotina
-    (param "geometry_reference_mm") caso o físico precise ajustar.
-    Substitui o campo bruto (avg_line_distance_mm): é a mesma informação,
-    só que já comparada com a referência em vez de um número solto."""
+    (param "geometry_reference_mm") caso o físico precise ajustar. Usa as
+    4 linhas individuais (não a média) porque uma linha isolada fora de
+    tolerância pode ficar escondida numa média dentro da faixa aceitável.
+    Substitui os campos brutos (avg_line_distance_mm e line_distances_mm):
+    é a mesma informação, só que já comparada com a referência."""
     params_dict = params_dict or {}
-    avg = flat.pop("ctp404.avg_line_distance_mm", None)
-    if avg is None:
-        return flat
+    flat.pop("ctp404.avg_line_distance_mm", None)
     raw_ref = params_dict.get("geometry_reference_mm")
     try:
         reference = float(raw_ref) if raw_ref not in (None, "") else 50.0
     except (TypeError, ValueError):
         reference = 50.0
-    flat["ctp404.geometry_deviation_mm"] = float(avg) - reference
+    for i, name in enumerate(CATPHAN_GEOMETRY_LINE_NAMES):
+        value = flat.pop(f"ctp404.line_distances_mm[{i}]", None)
+        if value is not None:
+            flat[f"ctp404.geometry_deviation_{name}_mm"] = float(value) - reference
     return flat
 
 
