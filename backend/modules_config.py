@@ -420,17 +420,27 @@ MODULES = {
             "CatPhan 503": pylinac.CatPhan503,
             "CatPhan 600": pylinac.CatPhan600,
             "CatPhan 604": pylinac.CatPhan604,
+            "CatPhan 700": pylinac.CatPhan700,
         },
         "input_mode": "series",
         "param_map": {
             "hu_tolerance": "hu_tolerance",
             "scaling_tolerance_mm": "scaling_tolerance",
             "thickness_tolerance_mm": "thickness_tolerance",
+            # Correções de posicionamento do fantoma na aquisição — mesmos
+            # parâmetros usados no script de análise manual do físico
+            # (angle_adjustment para o giro do fantoma, roi_size_factor para
+            # compensar o tamanho efetivo das ROIs quando o fantoma não está
+            # perfeitamente centralizado/alinhado).
+            "angle_adjustment": "angle_adjustment",
+            "roi_size_factor": "roi_size_factor",
         },
         "param_cast": {
             "hu_tolerance": _float_cast,
             "scaling_tolerance_mm": _float_cast,
             "thickness_tolerance_mm": _float_cast,
+            "angle_adjustment": _float_cast,
+            "roi_size_factor": _float_cast,
         },
         "extract_dicom_angles": True,
         "exclude_prefixes": [

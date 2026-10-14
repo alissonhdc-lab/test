@@ -574,7 +574,7 @@
       id: "catphan",
       name: "CatPhan (CT / CBCT)",
       group: "Tomógrafo (CT / CBCT)",
-      pylinacRef: "pylinac.ct.CatPhan504 / CatPhan503 / CatPhan600 / CatPhan604",
+      pylinacRef: "pylinac.ct.CatPhan504 / CatPhan503 / CatPhan600 / CatPhan604 / CatPhan700",
       applicableTypes: ["ct"],
       description: "Avaliação de HU, geometria, uniformidade e resolução com fantoma CatPhan.",
       requiresFiles: true,
@@ -582,10 +582,12 @@
       fileAccept: ".dcm,.zip",
       fileHint: "Todos os cortes DICOM da série (ou um único arquivo .zip contendo a série).",
       params: [
-        { key: "phantom_model", label: "Modelo do fantoma", type: "select", options: ["CatPhan 504", "CatPhan 503", "CatPhan 600", "CatPhan 604"], default: "CatPhan 504" },
+        { key: "phantom_model", label: "Modelo do fantoma", type: "select", options: ["CatPhan 504", "CatPhan 503", "CatPhan 600", "CatPhan 604", "CatPhan 700"], default: "CatPhan 504" },
         { key: "hu_tolerance", label: "Tolerância de HU", type: "number", default: 40, unit: "HU", step: 1 },
         { key: "scaling_tolerance_mm", label: "Tolerância geométrica", type: "number", default: 1.0, unit: "mm", step: 0.1 },
         { key: "thickness_tolerance_mm", label: "Tolerância de espessura de corte", type: "number", default: 0.2, unit: "mm", step: 0.1 },
+        { key: "angle_adjustment", label: "Ajuste de ângulo do fantoma", type: "number", default: 0, unit: "°", step: 0.1 },
+        { key: "roi_size_factor", label: "Fator de tamanho das ROIs", type: "number", default: 1.0, unit: "", step: 0.05 },
       ],
       metrics: [
         { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
