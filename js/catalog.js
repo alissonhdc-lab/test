@@ -588,15 +588,34 @@
         { key: "thickness_tolerance_mm", label: "Tolerância de espessura de corte", type: "number", default: 0.2, unit: "mm", step: 0.1 },
         { key: "angle_adjustment", label: "Ajuste de ângulo do fantoma", type: "number", default: 0, unit: "°", step: 0.1 },
         { key: "roi_size_factor", label: "Fator de tamanho das ROIs", type: "number", default: 1.0, unit: "", step: 0.05 },
+        // Distância real (de fábrica) entre os 4 nós do módulo de geometria
+        // do CatPhan — 50 mm em todos os modelos (pylinac.ct.GeometricLine.
+        // nominal_length_mm), mas editável aqui caso seja preciso ajustar.
+        // Usada só para calcular o desvio mostrado como métrica (abaixo),
+        // não é repassada ao pylinac.
+        { key: "geometry_reference_mm", label: "Distância de referência entre nós (geometria)", type: "number", default: 50, unit: "mm", step: 0.1 },
       ],
       metrics: [
-        { key: "dicom_gantry_angle_deg", label: "Ângulo do Gantry", unit: "°", tolType: "info", plottable: false },
-        { key: "dicom_collimator_angle_deg", label: "Ângulo do Colimador", unit: "°", tolType: "info", plottable: false },
         { key: "ctp404.hu_linearity_passed", label: "Linearidade de HU aprovada", unit: "", tolType: "bool" },
+        {
+          key: "ctp404.hu_max_deviation_hu",
+          label: "Maior desvio de HU entre os insertos",
+          unit: "HU",
+          tolType: "action",
+          actionPct: 20,
+          tolerancePct: 40,
+        },
         { key: "ctp404.geometry_passed", label: "Precisão geométrica aprovada", unit: "", tolType: "bool" },
+        {
+          key: "ctp404.geometry_deviation_mm",
+          label: "Desvio da precisão geométrica (medido vs. referência)",
+          unit: "mm",
+          tolType: "action",
+          actionPct: 0.5,
+          tolerancePct: 1.0,
+        },
         { key: "ctp404.thickness_passed", label: "Espessura de corte aprovada", unit: "", tolType: "bool" },
         { key: "ctp404.measured_slice_thickness_mm", label: "Espessura de corte medida", unit: "mm", tolType: "info" },
-        { key: "ctp404.avg_line_distance_mm", label: "Distância média entre linhas (geometria)", unit: "mm", tolType: "info" },
         { key: "ctp404.low_contrast_visibility", label: "Visibilidade de baixo contraste", unit: "", tolType: "info" },
         { key: "ctp486.passed", label: "Uniformidade aprovada", unit: "", tolType: "bool" },
         { key: "ctp486.integral_non_uniformity", label: "Não-uniformidade integral", unit: "", tolType: "info" },

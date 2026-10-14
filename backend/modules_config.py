@@ -131,6 +131,57 @@ def _isoalign_nominal_deviation(flat, params_dict=None):
     return flat
 
 
+def _catphan_hu_max_deviation(flat, params_dict=None):
+    """postprocess: resume o desvio de HU por inserto num único valor
+    numérico, pronto para nível de ação/tolerância.
+
+    O pylinac já calcula, para cada inserto do módulo CTP404 (ar, acrílico,
+    teflon etc.), a diferença entre o valor de HU medido e o valor nominal
+    tirado do próprio manual do fabricante do CatPhan (ver
+    ``pylinac.ct.ROIResult.difference`` — os valores nominais em si, ex.
+    ACRYLIC=115 HU, TEFLON=1000 HU, estão em ``pylinac.ct``, um por
+    material, e por isso já valem automaticamente para qualquer modelo de
+    CatPhan: o que muda de um modelo pro outro é só quais insertos existem
+    no fantoma, não o valor nominal de cada um). Aqui só pegamos o maior
+    desvio absoluto entre os insertos presentes — já com sinal, pra mostrar
+    se a tendência é pra mais ou pra menos — e descartamos os campos brutos
+    por inserto (ctp404.hu_rois.*) depois de extraído o resumo, pra não
+    poluir a tabela de métricas."""
+    prefix = "ctp404.hu_rois."
+    diffs = []
+    for key in list(flat.keys()):
+        if not key.startswith(prefix):
+            continue
+        if key.endswith(".difference") and flat[key] is not None:
+            diffs.append(float(flat[key]))
+        del flat[key]
+    if diffs:
+        flat["ctp404.hu_max_deviation_hu"] = max(diffs, key=abs)
+    return flat
+
+
+def _catphan_geometry_deviation(flat, params_dict=None):
+    """postprocess: desvio da distância média entre os 4 nós do módulo de
+    geometria (ctp404.avg_line_distance_mm, já medido pelo pylinac) em
+    relação ao valor de referência da distância real entre os nós — por
+    padrão 50 mm (pylinac.ct.GeometricLine.nominal_length_mm, igual em
+    todos os modelos de CatPhan), mas editável na rotina
+    (param "geometry_reference_mm") caso o físico precise ajustar.
+    Substitui o campo bruto (avg_line_distance_mm): é a mesma informação,
+    só que já comparada com a referência em vez de um número solto."""
+    params_dict = params_dict or {}
+    avg = flat.pop("ctp404.avg_line_distance_mm", None)
+    if avg is None:
+        return flat
+    raw_ref = params_dict.get("geometry_reference_mm")
+    try:
+        reference = float(raw_ref) if raw_ref not in (None, "") else 50.0
+    except (TypeError, ValueError):
+        reference = 50.0
+    flat["ctp404.geometry_deviation_mm"] = float(avg) - reference
+    return flat
+
+
 def _crop_image_hook(instance, params_dict):
     """pre_analyze_hook: recorta as bordas da imagem antes de analisar —
     remove marcas de gráticula/artefatos de borda que podem atrapalhar a
@@ -444,7 +495,10 @@ MODULES = {
         },
         "extract_dicom_angles": True,
         "exclude_prefixes": [
-            "ctp404.hu_rois",
+            # ctp404.hu_rois NÃO é excluído aqui — _catphan_hu_max_deviation
+            # precisa ver os campos brutos por inserto (ctp404.hu_rois.*)
+            # pra calcular o maior desvio de HU, e descarta esses campos
+            # brutos sozinho depois de usá-los (ver função abaixo).
             "ctp486.rois",
             "ctp528.roi_settings",
             "ctp528.mtf_lp_mm",
@@ -456,6 +510,7 @@ MODULES = {
         # painel que plot_analyzed_image() do pylinac desenha, só que
         # capturado como PNG para mostrar no resultado do teste.
         "render_analyzed_image": True,
+        "postprocess": _compose(_catphan_hu_max_deviation, _catphan_geometry_deviation),
     },
     "quart": {
         "cls": pylinac.QuartDVT,
