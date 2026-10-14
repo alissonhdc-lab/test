@@ -803,6 +803,9 @@
       const unitInput = row.querySelector(`input[name="mm_unit_${index}"]`);
       tolSpan.innerHTML = ui.toleranceInputsHtml("mm_" + index, e.target.value, {}, unitInput ? unitInput.value : "");
     }
+    if (e.target.matches('input[name="visibilityMode"]')) {
+      document.getElementById("visibility-users-list").classList.toggle("hidden", e.target.value !== "restricted");
+    }
     if (e.target.classList.contains("trend-metric-check")) {
       const parts = parseHash();
       const routineId = parts[3];
@@ -936,7 +939,7 @@
     }
     modal.openModal({
       title: routine ? "Editar rotina de CQ" : "Nova rotina de CQ",
-      bodyHtml: ui.routineFormHtml(equipment, routine, currentAssetsByType, currentSncTemplates),
+      bodyHtml: ui.routineFormHtml(equipment, routine, currentAssetsByType, currentSncTemplates, db.users),
       wide: true,
     });
     syncConditionalRequired();
@@ -1079,6 +1082,14 @@
 
       const chartStyle = readChartStyleFromForm(fd);
 
+      // null = sem restrição (visível a todos); array (mesmo vazio) = só
+      // os IDs marcados conseguem ver — não pode ser [] por padrão aqui,
+      // senão "restrito mas ninguém marcado" ficaria igual a "sem restrição".
+      const visibleTo =
+        fd.get("visibilityMode") === "restricted"
+          ? Array.from(form.querySelectorAll('[name^="visibleTo__"]:checked')).map((el) => el.name.replace("visibleTo__", ""))
+          : null;
+
       const data = {
         equipmentId,
         name: fd.get("name"),
@@ -1088,6 +1099,7 @@
         params,
         metrics,
         chartStyle,
+        visibleTo,
         notes: fd.get("notes"),
         active: fd.get("active") === "on",
       };

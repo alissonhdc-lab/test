@@ -333,12 +333,28 @@ def delete_medicao(aid: str, mid: str, _: dict = Depends(require_admin)):
     return {"success": True}
 
 
+def _routine_visible_to(routine, user):
+    """Administrador sempre vê tudo (é quem configura a visibilidade). Para
+    técnico: visibleTo None (chave ausente/nunca restringida) é visível
+    para todos; uma LISTA (mesmo vazia) é restrita — só os IDs nela
+    conseguem ver (lista vazia = visível só para administradores)."""
+    if not routine:
+        return True
+    if user.get("role") == "admin":
+        return True
+    visible_to = routine.get("visibleTo")
+    if visible_to is None:
+        return True
+    return user["id"] in visible_to
+
+
 # ==================================================================
 # Rotinas
 # ==================================================================
 @app.get("/api/rotinas")
-def list_rotinas(equipment_id: Optional[str] = Query(None), _: dict = Depends(get_current_user)):
-    return db.list_routines(equipment_id)
+def list_rotinas(equipment_id: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
+    routines = db.list_routines(equipment_id)
+    return [r for r in routines if _routine_visible_to(r, user)]
 
 
 @app.post("/api/rotinas")
@@ -365,12 +381,25 @@ def delete_rotina(rid: str, _: dict = Depends(require_admin)):
 # Resultados
 # ==================================================================
 @app.get("/api/resultados")
-def list_resultados(routine_id: Optional[str] = Query(None), _: dict = Depends(get_current_user)):
-    return db.list_results(routine_id)
+def list_resultados(routine_id: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
+    if routine_id:
+        if not _routine_visible_to(db.get_routine(routine_id), user):
+            raise HTTPException(status_code=403, detail="Você não tem acesso a esta rotina.")
+        return db.list_results(routine_id)
+    # Sem filtro por rotina: usado por store.get() para montar o "db"
+    # completo do app — para técnico, exclui resultados de rotinas que
+    # ele não pode ver (a mesma regra de _routine_visible_to).
+    results = db.list_results(None)
+    if user.get("role") == "admin":
+        return results
+    routines_by_id = {r["id"]: r for r in db.list_routines()}
+    return [res for res in results if _routine_visible_to(routines_by_id.get(res["routineId"]), user)]
 
 
 @app.post("/api/resultados")
-def create_resultado(data: dict = Body(...), _: dict = Depends(get_current_user)):
+def create_resultado(data: dict = Body(...), user: dict = Depends(get_current_user)):
+    if not _routine_visible_to(db.get_routine(data.get("routineId")), user):
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta rotina.")
     rid = db.create_result(data)
     _maybe_log_trs398_measurement(data)
     return db.get_result(rid)

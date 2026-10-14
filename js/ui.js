@@ -959,7 +959,41 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     </fieldset>`;
   }
 
-  function routineFormHtml(equipment, routine, assetsByType, sncTemplates) {
+  function visibilityFieldsHtml(users, visibleTo) {
+    // visibleTo é null/undefined (sem restrição, visível a todos) ou um
+    // array (restrita — mesmo vazio, o que significa "só administradores
+    // veem"). Por isso o teste é Array.isArray, não "length > 0": uma
+    // lista vazia ainda é uma restrição, só que sem ninguém marcado.
+    const restricted = Array.isArray(visibleTo);
+    const selected = restricted ? visibleTo : [];
+    const tecnicos = (users || []).filter((u) => u.role === "tecnico");
+    const usersHtml = tecnicos.length
+      ? tecnicos
+          .map(
+            (u) => `
+          <label class="checkbox-label inline">
+            <input type="checkbox" name="visibleTo__${u.id}" ${selected.includes(u.id) ? "checked" : ""} /> ${esc(u.fullName)}
+          </label>`
+          )
+          .join("")
+      : `<p class="muted small">Nenhum usuário técnico cadastrado ainda (veja em Usuários).</p>`;
+    return `
+    <fieldset class="visibility-fieldset">
+      <legend>Visibilidade por usuário</legend>
+      <p class="muted small">Controla quem vê esta rotina no Painel e em Equipamentos. Administradores sempre veem todas as rotinas.</p>
+      <label class="radio-label">
+        <input type="radio" name="visibilityMode" value="all" ${!restricted ? "checked" : ""} data-action="toggle-visibility-mode" /> Visível para todos os técnicos
+      </label>
+      <label class="radio-label">
+        <input type="radio" name="visibilityMode" value="restricted" ${restricted ? "checked" : ""} data-action="toggle-visibility-mode" /> Visível só para os técnicos marcados abaixo
+      </label>
+      <div id="visibility-users-list" class="visibility-users-list ${restricted ? "" : "hidden"}">
+        ${usersHtml}
+      </div>
+    </fieldset>`;
+  }
+
+  function routineFormHtml(equipment, routine, assetsByType, sncTemplates, users) {
     const r = routine || {};
     assetsByType = assetsByType || {};
     sncTemplates = sncTemplates || [];
@@ -1042,6 +1076,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       </div>
 
       ${chartStyleFieldsHtml(r.chartStyle)}
+
+      ${visibilityFieldsHtml(users, r.visibleTo)}
 
       <label>Observações / protocolo de referência
         <textarea name="notes" rows="2">${esc(r.notes || "")}</textarea>
