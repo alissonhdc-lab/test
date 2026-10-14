@@ -12,11 +12,33 @@ from pathlib import Path
 
 import numpy as np
 import pydicom
+from pydicom.pixel_data_handlers import numpy_handler, rle_handler
 
 from modules_config import MODULES
 from wl_custom import threshold_from_pct
 
 logger = logging.getLogger("rtqc-backend")
+
+# Handlers explícitos para decodificar o pixel data do DICOM: o numpy_handler
+# lê Implicit VR Little Endian nativamente e o Pillow é excluído de propósito
+# — ele causa OverflowError ("Python integer 32768 out of bounds for int16")
+# em várias imagens de CT/CBCT por assumir pixel sem sinal onde a imagem é
+# assinada. Handlers opcionais (pylibjpeg/gdcm, p/ transfer syntaxes
+# comprimidas) só entram se estiverem instalados.
+_pixel_data_handlers = [numpy_handler, rle_handler]
+try:
+    from pydicom.pixel_data_handlers import pylibjpeg_handler
+
+    _pixel_data_handlers.append(pylibjpeg_handler)
+except ImportError:
+    pass
+try:
+    from pydicom.pixel_data_handlers import gdcm_handler
+
+    _pixel_data_handlers.append(gdcm_handler)
+except ImportError:
+    pass
+pydicom.config.pixel_data_handlers = _pixel_data_handlers
 
 
 class AnalysisError(Exception):
