@@ -113,6 +113,140 @@ Se você estiver no Windows, este é o caminho mais direto — usando o
 > o `index.html` localmente em algum PC (ex.: sem rede), aponte **Backup →
 > Servidor (backend)** para esse mesmo endereço.
 
+## Deixando o acesso pela rede estável (uso real, não só teste)
+
+O passo a passo acima já é suficiente para **testar** o acesso de outros
+computadores/Wi-Fi. Mas, do jeito que está, o sistema tem dois problemas
+para um uso do dia a dia por toda a clínica:
+
+- O **IP pode mudar** quando o PC reinicia (o DHCP do roteador pode dar um
+  endereço diferente), e aí a URL que todo mundo usa para de funcionar.
+- O backend só roda **enquanto aquele terminal do `uvicorn` fica aberto**.
+  Fechou o terminal, deslogou do Windows ou reiniciou o PC: o sistema cai
+  para a clínica inteira, não só para quem estava usando.
+
+Os três passos abaixo resolvem isso. Faça nessa ordem.
+
+### Passo 1 — Liberar a porta no Firewall do Windows
+
+Se o acesso de outro computador já está funcionando (como no seu teste),
+provavelmente isso já está liberado e você pode pular este passo. Se
+algum computador não conseguir conectar, confira:
+
+1. Abra o **Firewall do Windows Defender com Segurança Avançada** (digite
+   "firewall" no menu Iniciar e escolha essa opção).
+2. Clique em **Regras de Entrada** (menu à esquerda) → **Nova Regra...**
+   (menu à direita).
+3. Escolha **Porta** → Avançar.
+4. **TCP**, **Portas locais específicas**: digite `8420` → Avançar.
+5. **Permitir a conexão** → Avançar.
+6. Marque todos os perfis (Domínio, Particular, Público) → Avançar.
+7. Dê um nome, ex. "CQ Radioterapia (backend)" → Concluir.
+
+### Passo 2 — Fixar o IP do computador que roda o backend
+
+Sem isso, a URL que todo mundo usa (`http://<IP>:8420`) pode parar de
+funcionar sozinha depois de um reinício. Duas formas de resolver — use a
+que fizer mais sentido na sua clínica:
+
+**Opção A — Reserva de IP no roteador (recomendado, peça para o TI):**
+quem administra o roteador/switch da clínica cria uma "reserva de DHCP"
+(*DHCP reservation*) associando o endereço físico (MAC) deste computador
+sempre ao mesmo IP. Para achar o MAC, rode no Prompt de Comando:
+
+```bat
+ipconfig /all
+```
+
+e procure o campo **"Endereço Físico"** do adaptador em uso (Ethernet ou
+Wi-Fi). Essa é a forma mais segura porque quem continua controlando os
+endereços da rede é o roteador — sem risco de dois aparelhos brigando
+pelo mesmo IP.
+
+**Opção B — IP fixo direto no Windows (se não tiver acesso ao roteador):**
+
+1. Rode `ipconfig /all` e anote: **Endereço IPv4** atual, **Máscara de
+   Sub-rede**, **Gateway Padrão** e os **Servidores DNS**.
+2. Abra **Configurações → Rede e Internet** → clique no adaptador em uso
+   (Ethernet ou Wi-Fi) → **Editar** (em "Atribuição de IP").
+3. Troque de **Automático (DHCP)** para **Manual**, ative IPv4 e preencha
+   com os mesmos valores anotados no passo 1 — **exceto o IP**, que você
+   escolhe fixo dentro da mesma faixa (ex.: se o IP atual é
+   `192.168.1.50`, qualquer `192.168.1.xxx` fora da faixa que o roteador
+   usa para distribuir por DHCP costuma servir, mas confirme com o TI para
+   não colidir com outro equipamento).
+4. Salve e confirme de novo com `ipconfig` que o IP ficou o escolhido.
+
+> Qualquer que seja a opção, depois de fixar o IP, atualize a URL que todo
+> mundo usa (e o atalho/favorito, se já tiverem salvo um) para
+> `http://<o-IP-fixo>:8420`.
+
+### Passo 3 — Rodar o backend como serviço do Windows
+
+Isso faz o backend iniciar sozinho com o Windows e continuar rodando
+mesmo sem ninguém logado — sem depender de deixar um terminal aberto.
+
+1. Baixe o **NSSM** (*Non-Sucking Service Manager*, uma ferramenta gratuita
+   e bem estabelecida para isso) em
+   [nssm.cc/download](https://nssm.cc/download) e extraia o `.zip`.
+2. Dentro da pasta extraída, entre em `win64` (ou `win32` se o Windows for
+   32 bits) e copie o `nssm.exe` para um lugar fixo, ex.
+   `C:\nssm\nssm.exe`.
+3. Abra o **Prompt de Comando como Administrador** (clique direito nele no
+   menu Iniciar → "Executar como administrador").
+4. Rode:
+
+   ```bat
+   C:\nssm\nssm.exe install RTQCBackend
+   ```
+
+   Isso abre uma janela gráfica de configuração. Preencha:
+   - **Path**: o `python.exe` de dentro do ambiente virtual, ex.
+     `C:\Users\SeuUsuario\Documents\test\backend\venv\Scripts\python.exe`.
+   - **Startup directory**: a pasta `backend`, ex.
+     `C:\Users\SeuUsuario\Documents\test\backend`.
+   - **Arguments**: `-m uvicorn main:app --host 0.0.0.0 --port 8420`.
+
+   Na aba **I/O**, em "Output (stdout)" e "Error (stderr)", aponte os dois
+   para um arquivo de log (ex. `C:\nssm\backend.log`) — sem o terminal
+   aberto, é ali que você vai olhar se algo der errado.
+
+5. Clique em **Install service**.
+6. Inicie o serviço:
+
+   ```bat
+   C:\nssm\nssm.exe start RTQCBackend
+   ```
+
+   Ou pelo caminho gráfico: abra **Serviços** (digite "serviços" no menu
+   Iniciar), ache **RTQCBackend** na lista, clique com o botão direito →
+   **Iniciar**.
+7. Confirme que está no ar abrindo `http://localhost:8420/api/health` no
+   navegador.
+8. Nas propriedades do serviço (em **Serviços**, duplo clique em
+   **RTQCBackend**), confirme que **Tipo de inicialização** está como
+   **Automático** — assim ele volta sozinho depois de reiniciar o PC.
+
+**No dia a dia, com o serviço instalado:**
+
+- Para **atualizar o código** (`git pull`): pare o serviço
+  (`nssm stop RTQCBackend` ou pelo **Serviços**), atualize, inicie de novo
+  (`nssm start RTQCBackend`).
+- Para **parar/reiniciar**: mesma ideia, `nssm stop`/`nssm start`, ou pelo
+  painel **Serviços** do Windows.
+- Para **remover o serviço** (ex.: se quiser voltar a rodar manualmente
+  pelo terminal): `nssm remove RTQCBackend confirm`.
+- **Não precisa mais abrir nenhum terminal** nem fazer login no Windows
+  para o backend estar no ar — ele sobe sozinho desde a tela de login.
+
+> **Alternativa sem baixar nada**: o **Agendador de Tarefas** do Windows
+> (Task Scheduler) também consegue iniciar o `uvicorn` automaticamente ao
+> ligar o PC, criando uma tarefa com gatilho "Ao iniciar o sistema" e ação
+> apontando para o mesmo `python.exe`/argumentos do passo 4 acima. É mais
+> simples de configurar, mas não reinicia sozinho se o processo travar ou
+> cair no meio — o NSSM faz isso automaticamente, por isso é a opção
+> recomendada para uso real da clínica.
+
 ## 3. Conectar o app a este backend
 
 O jeito mais simples: acesse `http://localhost:8420` (ou `http://<IP-da-
