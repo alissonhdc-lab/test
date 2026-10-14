@@ -131,32 +131,45 @@ def _isoalign_nominal_deviation(flat, params_dict=None):
     return flat
 
 
-def _catphan_hu_max_deviation(flat, params_dict=None):
-    """postprocess: resume o desvio de HU por inserto num único valor
-    numérico, pronto para nível de ação/tolerância.
+# Nome do inserto no pylinac (roi_settings de CTP404CP504/600/604/700) ->
+# slug usado na chave da métrica (ctp404.hu.<slug>), igual ao de
+# CATPHAN_HU_INSERTS em js/catalog.js. O 604 e o 700 escrevem os ossos de
+# jeitos diferentes ("50% Bone" vs. "Bone 50%"), por isso o mapa explícito.
+CATPHAN_HU_INSERT_SLUGS = {
+    "Air": "air",
+    "Lung #7112": "lung7112",
+    "PMP": "pmp",
+    "LDPE": "ldpe",
+    "Poly": "poly",
+    "Vial": "vial",
+    "Acrylic": "acrylic",
+    "20% Bone": "bone20",
+    "Bone 20%": "bone20",
+    "Delrin": "delrin",
+    "50% Bone": "bone50",
+    "Bone 50%": "bone50",
+    "Teflon": "teflon",
+}
 
-    O pylinac já calcula, para cada inserto do módulo CTP404 (ar, acrílico,
-    teflon etc.), a diferença entre o valor de HU medido e o valor nominal
-    tirado do próprio manual do fabricante do CatPhan (ver
-    ``pylinac.ct.ROIResult.difference`` — os valores nominais em si, ex.
-    ACRYLIC=115 HU, TEFLON=1000 HU, estão em ``pylinac.ct``, um por
-    material, e por isso já valem automaticamente para qualquer modelo de
-    CatPhan: o que muda de um modelo pro outro é só quais insertos existem
-    no fantoma, não o valor nominal de cada um). Aqui só pegamos o maior
-    desvio absoluto entre os insertos presentes — já com sinal, pra mostrar
-    se a tendência é pra mais ou pra menos — e descartamos os campos brutos
-    por inserto (ctp404.hu_rois.*) depois de extraído o resumo, pra não
-    poluir a tabela de métricas."""
+
+def _catphan_hu_inserts(flat, params_dict=None):
+    """postprocess: HU medido em cada inserto do módulo de linearidade
+    (CTP404), uma métrica por inserto: ctp404.hu.<slug>.
+
+    O conjunto de insertos depende do modelo do CatPhan (o pylinac só gera
+    ROIs dos materiais daquele modelo) e o valor predito de cada um fica no
+    catálogo do front (nominal da métrica), que é o mesmo do pylinac — a
+    avaliação de ação/tolerância é feita em torno dele. Os campos brutos
+    por inserto (ctp404.hu_rois.*) são descartados depois."""
     prefix = "ctp404.hu_rois."
-    diffs = []
     for key in list(flat.keys()):
         if not key.startswith(prefix):
             continue
-        if key.endswith(".difference") and flat[key] is not None:
-            diffs.append(float(flat[key]))
-        del flat[key]
-    if diffs:
-        flat["ctp404.hu_max_deviation_hu"] = max(diffs, key=abs)
+        value = flat.pop(key)
+        name, _, field = key[len(prefix):].rpartition(".")
+        if field == "value" and value is not None:
+            slug = CATPHAN_HU_INSERT_SLUGS.get(name) or "".join(c for c in name.lower() if c.isalnum())
+            flat[f"ctp404.hu.{slug}"] = float(value)
     return flat
 
 
@@ -548,7 +561,7 @@ MODULES = {
         "extract_dicom_slice_thickness": True,
         "exclude_prefixes": [
             # ctp404.hu_rois e ctp486.rois NÃO são excluídos aqui —
-            # _catphan_hu_max_deviation e _catphan_hu_uniformity_deviation
+            # _catphan_hu_inserts e _catphan_hu_uniformity_deviation
             # precisam ver os campos brutos por inserto/ROI pra calcular os
             # desvios de HU, e cada uma descarta seus campos brutos sozinha
             # depois de usá-los (ver funções acima).
@@ -563,7 +576,7 @@ MODULES = {
         # numa coluna em vez de grade 2x4, mais fácil de ler na tela.
         "render_catphan_stacked_image": True,
         "postprocess": _compose(
-            _catphan_hu_max_deviation,
+            _catphan_hu_inserts,
             _catphan_geometry_deviation,
             _catphan_thickness_deviation,
             _catphan_hu_uniformity_deviation,

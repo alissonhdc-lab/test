@@ -16,6 +16,7 @@
     DEFAULT_CHART_STYLE,
     getModulesForType,
     getModuleById,
+    getModuleMetrics,
     groupModules,
   } = global.RTQC.catalog;
 
@@ -832,7 +833,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     ["action", "Nível de ação / tolerância"],
   ];
 
-  function moduleMetricsPreviewHtml(module, savedMetrics) {
+  function moduleMetricsPreviewHtml(module, savedMetrics, params) {
     if (!module || !module.metrics) return "";
     const savedByKey = {};
     (savedMetrics || []).forEach((m) => (savedByKey[m.key] = m));
@@ -840,7 +841,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     <table class="mini-table">
       <thead><tr><th>Métrica</th><th>Unidade</th><th>Tipo</th><th>Tolerância</th></tr></thead>
       <tbody>
-        ${module.metrics
+        ${getModuleMetrics(module, params)
           .map((m) => {
             const saved = savedByKey[m.key] || {};
             const tolType = saved.tolType || m.tolType;
@@ -863,6 +864,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
             return `
             <tr data-metric-row="${m.key}">
               <td>${esc(m.label)}
+                ${m.nominal !== undefined ? `<div class="muted small">valor predito: ${esc(m.nominal)} ${esc(m.unit || "")}</div>` : ""}
                 <input type="hidden" name="metric__${m.key}__label" value="${esc(m.label)}" />
                 <input type="hidden" name="metric__${m.key}__unit" value="${esc(m.unit || "")}" />
               </td>
@@ -1064,7 +1066,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <div id="module-description" class="muted small">${selectedModule ? esc(selectedModule.description) + " (" + esc(selectedModule.pylinacRef) + ")" : ""}</div>
         <div id="module-params-container" class="params-grid">${selectedModule ? moduleParamsFormHtml(selectedModule, r.params, assetsByType) : ""}</div>
         <h4 class="mt">Métricas e tolerâncias de aprovação</h4>
-        <div id="module-metrics-container">${selectedModule ? moduleMetricsPreviewHtml(selectedModule, r.metrics) : ""}</div>
+        <div id="module-metrics-container">${selectedModule ? moduleMetricsPreviewHtml(selectedModule, r.metrics, r.params) : ""}</div>
       </div>
 
       <div id="trs398-section" class="${testType === "trs398" ? "" : "hidden"}">
@@ -1349,7 +1351,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     if (m.tolType === "min") return num >= Number(m.tol) ? "ok" : "fail";
     if (m.tolType === "range") return num >= Number(m.tolLow) && num <= Number(m.tolHigh) ? "ok" : "fail";
     if (m.tolType === "action") {
-      const abs = Math.abs(num);
+      // Com valor predito (ex.: HU nominal de um inserto do CatPhan), a
+      // faixa é em torno dele; sem, em torno de zero (a métrica já é um desvio).
+      const abs = Math.abs(num - (Number(m.nominal) || 0));
       if (abs <= Number(m.actionPct)) return "ok";
       if (abs <= Number(m.tolerancePct)) return "action";
       return "fail";
@@ -1566,7 +1570,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     if (m.tolType === "action" && m.actionPct !== undefined && m.actionPct !== null) {
       const u = m.unit || "%";
       const suffix = u === "%" ? "%" : ` ${u}`;
-      return `ação ±${m.actionPct}${suffix} · tol. ±${m.tolerancePct}${suffix}`;
+      const predicted = m.nominal !== undefined && m.nominal !== null ? `predito ${m.nominal}${suffix} · ` : "";
+      return `${predicted}ação ±${m.actionPct}${suffix} · tol. ±${m.tolerancePct}${suffix}`;
     }
     return "";
   }

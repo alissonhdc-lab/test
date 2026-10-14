@@ -208,9 +208,13 @@
         drawBand(s.toleranceLow, s.toleranceHigh, "chart-tolerance-band-outer");
         drawBand(s.actionLow, s.actionHigh, "chart-tolerance-band");
         drawThresholdLine(s.actionLow, "chart-threshold-action");
-        drawThresholdLine(s.actionHigh, "chart-threshold-action", `nível de ação ±${fmtValue(s.actionHigh, s.unit)}${unitSuffix}`);
+        // Rótulo com a meia-largura da faixa: a faixa pode estar centrada num
+        // valor predito (ex.: HU nominal de um inserto), não só em zero.
+        const actionHalf = (s.actionHigh - s.actionLow) / 2;
+        const toleranceHalf = (s.toleranceHigh - s.toleranceLow) / 2;
+        drawThresholdLine(s.actionHigh, "chart-threshold-action", `nível de ação ±${fmtValue(actionHalf, s.unit)}${unitSuffix}`);
         drawThresholdLine(s.toleranceLow, "chart-threshold-tolerance");
-        drawThresholdLine(s.toleranceHigh, "chart-threshold-tolerance", `tolerância ±${fmtValue(s.toleranceHigh, s.unit)}${unitSuffix}`);
+        drawThresholdLine(s.toleranceHigh, "chart-threshold-tolerance", `tolerância ±${fmtValue(toleranceHalf, s.unit)}${unitSuffix}`);
       } else {
         let low = null;
         let high = null;

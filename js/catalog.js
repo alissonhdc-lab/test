@@ -60,6 +60,89 @@
   //          'range' (tolLow <= valor <= tolHigh), 'bool', 'info' (sem tolerância)
   // fileMode: 'single' | 'multiple' | 'pair' | 'series' (só quando requiresFiles=true)
 
+  // Insertos do módulo de linearidade de HU (CTP404) do CatPhan, com o valor
+  // de HU predito de cada material — os mesmos valores nominais que o
+  // pylinac usa (constantes AIR, PMP, ... em pylinac/ct.py, ponto médio da
+  // faixa do manual do CatPhan). O slug bate com o que o backend gera em
+  // _catphan_hu_inserts (modules_config.py): chave "ctp404.hu.<slug>".
+  const CATPHAN_HU_INSERTS = {
+    air: { label: "Ar", nominal: -1000 },
+    lung7112: { label: "Pulmão #7112", nominal: -868 },
+    pmp: { label: "PMP", nominal: -196 },
+    ldpe: { label: "LDPE", nominal: -104 },
+    poly: { label: "Poliestireno", nominal: -47 },
+    vial: { label: "Água (frasco)", nominal: 0 },
+    acrylic: { label: "Acrílico", nominal: 115 },
+    bone20: { label: "Osso 20%", nominal: 237 },
+    delrin: { label: "Delrin", nominal: 365 },
+    bone50: { label: "Osso 50%", nominal: 725 },
+    teflon: { label: "Teflon", nominal: 1000 },
+  };
+
+  // Quais insertos existem em cada modelo (roi_settings de CTP404CP504/
+  // CP503/CP600/CP604/CP700 no pylinac), em ordem crescente de HU.
+  const CATPHAN_INSERTS_BY_MODEL = {
+    "CatPhan 503": ["air", "pmp", "ldpe", "poly", "acrylic", "delrin", "teflon"],
+    "CatPhan 504": ["air", "pmp", "ldpe", "poly", "acrylic", "delrin", "teflon"],
+    "CatPhan 600": ["air", "pmp", "ldpe", "poly", "vial", "acrylic", "delrin", "teflon"],
+    "CatPhan 604": ["air", "pmp", "ldpe", "poly", "acrylic", "bone20", "delrin", "bone50", "teflon"],
+    "CatPhan 700": ["air", "lung7112", "pmp", "ldpe", "poly", "vial", "acrylic", "bone20", "delrin", "bone50", "teflon"],
+  };
+
+  function catphanHuInsertMetrics(model) {
+    const slugs = CATPHAN_INSERTS_BY_MODEL[model] || CATPHAN_INSERTS_BY_MODEL["CatPhan 504"];
+    return slugs.map((slug) => ({
+      key: `ctp404.hu.${slug}`,
+      label: `HU — ${CATPHAN_HU_INSERTS[slug].label}`,
+      unit: "HU",
+      tolType: "action",
+      nominal: CATPHAN_HU_INSERTS[slug].nominal,
+      actionPct: 20,
+      tolerancePct: 40,
+    }));
+  }
+
+  // Precisão geométrica: uma linha por nó medido (não a média). Ordem fixa
+  // de pylinac.ct.CTP404CP504.geometry_roi_settings, herdada por
+  // 503/504/600/604 — o CatPhan 700 não tem nós de geometria.
+  const CATPHAN_GEOMETRY_METRICS = [
+    ["Superior-Horizontal", "superior-horizontal"],
+    ["Inferior-Horizontal", "inferior-horizontal"],
+    ["Vertical-Esquerda", "vertical-esquerda"],
+    ["Vertical-Direita", "vertical-direita"],
+  ].map(([name, label]) => ({
+    key: `ctp404.geometry_deviation_${name}_mm`,
+    label: `Precisão geométrica — linha ${label} (desvio vs. referência)`,
+    unit: "mm",
+    tolType: "action",
+    actionPct: 0.5,
+    tolerancePct: 1.0,
+  }));
+
+  function catphanMetrics(model) {
+    return [
+      ...catphanHuInsertMetrics(model),
+      ...(model === "CatPhan 700" ? [] : CATPHAN_GEOMETRY_METRICS),
+      {
+        key: "ctp404.thickness_deviation_mm",
+        label: "Espessura de corte: desvio (medida vs. nominal DICOM)",
+        unit: "mm",
+        tolType: "action",
+        actionPct: 0.1,
+        tolerancePct: 0.2,
+      },
+      { key: "ctp404.low_contrast_visibility", label: "Visibilidade de baixo contraste", unit: "", tolType: "info" },
+      {
+        key: "ctp486.hu_uniformity_deviation_hu",
+        label: "Teste de Uniformidade de HU",
+        unit: "HU",
+        tolType: "action",
+        actionPct: 20,
+        tolerancePct: 40,
+      },
+    ];
+  }
+
   const PYLINAC_CATALOG = [
     // ============== LINAC: geometria de imagem / MLC (análise automática) ==============
     {
@@ -595,70 +678,11 @@
         // não é repassada ao pylinac.
         { key: "geometry_reference_mm", label: "Distância de referência entre nós (geometria)", type: "number", default: 50, unit: "mm", step: 0.1 },
       ],
-      metrics: [
-        {
-          key: "ctp404.hu_max_deviation_hu",
-          label: "Maior desvio de HU entre os insertos",
-          unit: "HU",
-          tolType: "action",
-          actionPct: 20,
-          tolerancePct: 40,
-        },
-        // Precisão geométrica: uma linha por nó medido (não a média) — uma
-        // linha isolada fora de tolerância pode ficar escondida numa média
-        // dentro da faixa aceitável. Ordem fixa de
-        // pylinac.ct.CTP404CP504.geometry_roi_settings (herdada por
-        // 503/504/600/604; o CatPhan 700 não tem esse módulo).
-        {
-          key: "ctp404.geometry_deviation_Superior-Horizontal_mm",
-          label: "Precisão geométrica — linha superior-horizontal (desvio vs. referência)",
-          unit: "mm",
-          tolType: "action",
-          actionPct: 0.5,
-          tolerancePct: 1.0,
-        },
-        {
-          key: "ctp404.geometry_deviation_Inferior-Horizontal_mm",
-          label: "Precisão geométrica — linha inferior-horizontal (desvio vs. referência)",
-          unit: "mm",
-          tolType: "action",
-          actionPct: 0.5,
-          tolerancePct: 1.0,
-        },
-        {
-          key: "ctp404.geometry_deviation_Vertical-Esquerda_mm",
-          label: "Precisão geométrica — linha vertical-esquerda (desvio vs. referência)",
-          unit: "mm",
-          tolType: "action",
-          actionPct: 0.5,
-          tolerancePct: 1.0,
-        },
-        {
-          key: "ctp404.geometry_deviation_Vertical-Direita_mm",
-          label: "Precisão geométrica — linha vertical-direita (desvio vs. referência)",
-          unit: "mm",
-          tolType: "action",
-          actionPct: 0.5,
-          tolerancePct: 1.0,
-        },
-        {
-          key: "ctp404.thickness_deviation_mm",
-          label: "Espessura de corte: desvio (medida vs. nominal DICOM)",
-          unit: "mm",
-          tolType: "action",
-          actionPct: 0.1,
-          tolerancePct: 0.2,
-        },
-        { key: "ctp404.low_contrast_visibility", label: "Visibilidade de baixo contraste", unit: "", tolType: "info" },
-        {
-          key: "ctp486.hu_uniformity_deviation_hu",
-          label: "Teste de Uniformidade de HU",
-          unit: "HU",
-          tolType: "action",
-          actionPct: 20,
-          tolerancePct: 40,
-        },
-      ],
+      // As linhas de HU (uma por inserto) dependem do modelo do fantoma —
+      // ver catphanMetrics(). "metrics" fica com o 504 (padrão) para quem
+      // ainda consulta a lista estática.
+      metrics: catphanMetrics("CatPhan 504"),
+      metricsForParams: (params) => catphanMetrics(params && params.phantom_model),
     },
     {
       id: "quart",
@@ -1189,6 +1213,13 @@
     return PYLINAC_CATALOG.find((m) => m.id === id) || null;
   }
 
+  // Lista de métricas de um módulo para os parâmetros da rotina — alguns
+  // módulos (CatPhan) mudam as métricas conforme o modelo escolhido.
+  function getModuleMetrics(module, params) {
+    if (!module) return [];
+    return module.metricsForParams ? module.metricsForParams(params || {}) : module.metrics || [];
+  }
+
   function groupModules(modules) {
     const groups = {};
     modules.forEach((m) => {
@@ -1210,6 +1241,7 @@
     DEFAULT_CHART_STYLE,
     getModulesForType,
     getModuleById,
+    getModuleMetrics,
     groupModules,
   };
 })(window);

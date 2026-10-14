@@ -38,6 +38,38 @@
     };
   }
 
+  // Parâmetros do módulo pylinac como estão no formulário da rotina agora;
+  // campos ainda não desenhados caem no padrão do catálogo.
+  function readModuleParams(form, module) {
+    const params = {};
+    module.params.forEach((p) => {
+      const el = form && form.querySelector(`[name="param__${p.key}"]`);
+      if (!el) params[p.key] = p.default;
+      else params[p.key] = p.type === "checkbox" ? el.checked : el.value;
+    });
+    return params;
+  }
+
+  // Monta as métricas da rotina a partir da tabela "Métricas e tolerâncias"
+  // do formulário. O valor predito (nominal) vem do catálogo, não do form.
+  function readModuleMetrics(fd, metricList) {
+    return metricList.map((m) => {
+      const tolType = fd.get(`metric__${m.key}__tolType`) || m.tolType;
+      const entry = { key: m.key, label: m.label, unit: m.unit, tolType };
+      if (m.nominal !== undefined) entry.nominal = m.nominal;
+      if (tolType === "max" || tolType === "min") entry.tol = parseFloat(fd.get(`metric__${m.key}__tol`));
+      if (tolType === "range") {
+        entry.tolLow = parseFloat(fd.get(`metric__${m.key}__tolLow`));
+        entry.tolHigh = parseFloat(fd.get(`metric__${m.key}__tolHigh`));
+      }
+      if (tolType === "action") {
+        entry.actionPct = parseFloat(fd.get(`metric__${m.key}__actionPct`));
+        entry.tolerancePct = parseFloat(fd.get(`metric__${m.key}__tolerancePct`));
+      }
+      return entry;
+    });
+  }
+
   function groupAssetsByType(assets) {
     const byType = {};
     (assets || []).forEach((a) => {
@@ -300,10 +332,13 @@
           // Duas faixas no gráfico: nível de ação (mais estreita, "ok") e
           // tolerância (mais larga, limite duro) — sempre na mesma unidade
           // da métrica (m.unit), nunca necessariamente "%".
-          s.actionLow = -Number(m.actionPct);
-          s.actionHigh = Number(m.actionPct);
-          s.toleranceLow = -Number(m.tolerancePct);
-          s.toleranceHigh = Number(m.tolerancePct);
+          // Com valor predito (HU nominal de inserto do CatPhan), as faixas
+          // ficam em torno dele em vez de em torno de zero.
+          const base = Number(m.nominal) || 0;
+          s.actionLow = base - Number(m.actionPct);
+          s.actionHigh = base + Number(m.actionPct);
+          s.toleranceLow = base - Number(m.tolerancePct);
+          s.toleranceHigh = base + Number(m.tolerancePct);
         }
         return s;
       })
@@ -794,7 +829,23 @@
       const module = catalog.getModuleById(e.target.value);
       document.getElementById("module-description").textContent = module ? `${module.description} (${module.pylinacRef})` : "";
       document.getElementById("module-params-container").innerHTML = module ? ui.moduleParamsFormHtml(module, {}, currentAssetsByType) : "";
-      document.getElementById("module-metrics-container").innerHTML = module ? ui.moduleMetricsPreviewHtml(module, []) : "";
+      document.getElementById("module-metrics-container").innerHTML = module
+        ? ui.moduleMetricsPreviewHtml(module, [], readModuleParams(e.target.form, module))
+        : "";
+    }
+    // Métricas que dependem de parâmetro (ex.: insertos de HU por modelo de
+    // CatPhan): ao trocar o parâmetro, refaz a tabela mantendo o que já
+    // tinha sido configurado nas linhas que continuam existindo.
+    if (e.target.name && e.target.name.startsWith("param__") && e.target.form) {
+      const moduleSelect = e.target.form.querySelector("#module-select");
+      const module = moduleSelect && catalog.getModuleById(moduleSelect.value);
+      if (module && module.metricsForParams) {
+        const form = e.target.form;
+        const current = readModuleMetrics(new FormData(form), catalog.getModuleMetrics(module, readModuleParams(form, module))).filter((m) =>
+          form.querySelector(`[name="metric__${m.key}__tolType"]`)
+        );
+        document.getElementById("module-metrics-container").innerHTML = ui.moduleMetricsPreviewHtml(module, current, readModuleParams(form, module));
+      }
     }
     if (e.target.dataset.action === "manual-metric-toltype") {
       const row = e.target.closest(".manual-metric-row");
@@ -995,24 +1046,8 @@
           modal.toast("Selecione um módulo pylinac.", "error");
           return;
         }
-        module.params.forEach((p) => {
-          const raw = fd.get("param__" + p.key);
-          params[p.key] = p.type === "checkbox" ? form.querySelector(`[name="param__${p.key}"]`).checked : raw;
-        });
-        metrics = module.metrics.map((m) => {
-          const tolType = fd.get(`metric__${m.key}__tolType`) || m.tolType;
-          const entry = { key: m.key, label: m.label, unit: m.unit, tolType };
-          if (tolType === "max" || tolType === "min") entry.tol = parseFloat(fd.get(`metric__${m.key}__tol`));
-          if (tolType === "range") {
-            entry.tolLow = parseFloat(fd.get(`metric__${m.key}__tolLow`));
-            entry.tolHigh = parseFloat(fd.get(`metric__${m.key}__tolHigh`));
-          }
-          if (tolType === "action") {
-            entry.actionPct = parseFloat(fd.get(`metric__${m.key}__actionPct`));
-            entry.tolerancePct = parseFloat(fd.get(`metric__${m.key}__tolerancePct`));
-          }
-          return entry;
-        });
+        params = readModuleParams(form, module);
+        metrics = readModuleMetrics(fd, catalog.getModuleMetrics(module, params));
       } else if (testType === "trs398") {
         const module = catalog.DOSIMETRY_TRS398_TYPE;
         module.params.forEach((p) => {
