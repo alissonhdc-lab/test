@@ -880,6 +880,14 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     if (tolType === "bool") {
       return `<span class="muted small">aprovado/reprovado manual</span>`;
     }
+    if (tolType === "text") {
+      return `<span class="muted small">texto livre (sem tolerância)</span>`;
+    }
+    if (tolType === "select") {
+      return `<label class="muted small">opções (separadas por vírgula)
+        <input type="text" class="tol-input select-options-input" name="${prefix}__options" placeholder="Ex.: Sim, Não, N/A" value="${esc((saved.options || []).join(", "))}" />
+      </label>`;
+    }
     return `<span class="muted small">informativo (sem tolerância)</span>`;
   }
 
@@ -894,23 +902,33 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   function manualMetricRowHtml(m, index) {
     m = m || {};
     const tolType = m.tolType || "info";
-    const options = [
-      ["info", "Somente informativo"],
-      ["max", "Valor máximo aceitável"],
-      ["min", "Valor mínimo aceitável"],
-      ["range", "Faixa aceitável (min–max)"],
-      ["action", "Nível de ação / tolerância (%)"],
-      ["bool", "Aprovado/Reprovado manual"],
+    const typeOptions = [
+      ["info", "Numérico — somente informativo"],
+      ["max", "Numérico — valor máximo aceitável"],
+      ["min", "Numérico — valor mínimo aceitável"],
+      ["range", "Numérico — faixa aceitável (min–max)"],
+      ["action", "Numérico — nível de ação / tolerância"],
+      ["bool", "Aprovado/Reprovado (checklist sim/não)"],
+      ["text", "Texto livre"],
+      ["select", "Lista suspensa (opções)"],
     ]
       .map(([v, l]) => `<option value="${v}" ${tolType === v ? "selected" : ""}>${l}</option>`)
       .join("");
     return `
     <div class="manual-metric-row" data-manual-row="${index}">
-      <input type="text" placeholder="Nome da métrica (ex.: Dose por UM)" name="mm_label_${index}" value="${esc(m.label || "")}" />
-      <input type="text" placeholder="Unidade (ex.: cGy/UM)" name="mm_unit_${index}" value="${esc(m.unit || "")}" class="unit-input" />
-      <select name="mm_toltype_${index}" data-action="manual-metric-toltype">${options}</select>
-      <span class="manual-metric-tol" data-manual-tol="${index}">${toleranceInputsHtml("mm_" + index, tolType, m, m.unit)}</span>
-      <button type="button" class="icon-btn" data-action="remove-manual-metric" data-index="${index}" title="Remover">🗑</button>
+      <div class="manual-metric-row-main">
+        <span class="manual-metric-index">${index + 1}.</span>
+        <input type="text" placeholder="Pergunta / nome do campo (ex.: Desvio do laser da sala)" name="mm_label_${index}" value="${esc(m.label || "")}" />
+        <input type="text" placeholder="Unidade (ex.: mm)" name="mm_unit_${index}" value="${esc(m.unit || "")}" class="unit-input" />
+        <select name="mm_toltype_${index}" data-action="manual-metric-toltype">${typeOptions}</select>
+        <button type="button" class="icon-btn" data-action="remove-manual-metric" data-index="${index}" title="Remover">🗑</button>
+      </div>
+      <div class="manual-metric-row-sub">
+        <span class="manual-metric-tol" data-manual-tol="${index}">${toleranceInputsHtml("mm_" + index, tolType, m, m.unit)}</span>
+        <label class="checkbox-label inline">
+          <input type="checkbox" name="mm_required_${index}" ${m.required ? "checked" : ""} /> Obrigatório
+        </label>
+      </div>
     </div>`;
   }
 
@@ -984,7 +1002,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
           <input type="radio" name="testType" value="snc_daily" ${testType === "snc_daily" ? "checked" : ""} data-action="toggle-test-type" /> Teste Diário (Sun Nuclear Daily QA3)
         </label>
         <label class="radio-label">
-          <input type="radio" name="testType" value="manual" ${testType === "manual" ? "checked" : ""} data-action="toggle-test-type" /> Manual / genérico
+          <input type="radio" name="testType" value="manual" ${testType === "manual" ? "checked" : ""} data-action="toggle-test-type" /> Checklist / manual (campos personalizados)
         </label>
       </fieldset>
 
@@ -1018,8 +1036,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       </div>
 
       <div id="manual-section" class="${testType === "manual" ? "" : "hidden"}">
-        <h4>Métricas do teste manual</h4>
-        <p class="muted small">Defina as métricas que serão preenchidas manualmente a cada execução (ex.: Output %, Atividade da fonte, etc.).</p>
+        <h4>Campos do checklist</h4>
+        <p class="muted small">Monte as perguntas/campos que serão preenchidos a cada execução — numérico (com unidade e nível de ação/tolerância), aprovado/reprovado, texto livre ou lista suspensa. A ordem aqui é a ordem em que aparecem no formulário de resultado.</p>
         ${manualMetricsEditorHtml(r.metrics)}
       </div>
 
@@ -1253,6 +1271,10 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // como prioridade, e só cai para o valor salvo na rotina como reserva
   // (ex.: métricas manuais, que não têm módulo de catálogo correspondente).
   function isMetricPlottable(m, module) {
+    // Texto livre e lista suspensa não são grandezas numéricas — não dá
+    // para desenhar tendência disso, então nunca entram na lista de
+    // seleção do gráfico, independente de qualquer metadado "plottable".
+    if (m.tolType === "text" || m.tolType === "select") return false;
     if (module && module.metrics) {
       const catalogMetric = module.metrics.find((cm) => cm.key === m.key);
       if (catalogMetric && catalogMetric.plottable !== undefined) return catalogMetric.plottable !== false;
@@ -1269,7 +1291,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // tolerância é "fail". Todos os outros tolTypes só têm ok/fail.
   function evaluateMetricState(m, v) {
     if (v === undefined || v === null || v === "") return null;
-    if (!m.tolType || m.tolType === "info") return null;
+    if (!m.tolType || m.tolType === "info" || m.tolType === "text" || m.tolType === "select") return null;
     if (m.tolType === "bool") return v === "false" || v === false ? "fail" : "ok";
     const num = Number(v);
     if (Number.isNaN(num)) return null;
@@ -1420,17 +1442,32 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     const metrics = routine.metrics || [];
     const fields = metrics
       .map((m) => {
+        const req = m.required ? "required" : "";
         if (m.tolType === "bool") {
           return `<label>${esc(m.label)}
-            <select name="value__${m.key}" class="result-metric-input" data-metric-key="${esc(m.key)}">
+            <select name="value__${m.key}" class="result-metric-input" data-metric-key="${esc(m.key)}" ${req}>
               <option value="">—</option>
               <option value="true">Aprovado</option>
               <option value="false">Reprovado</option>
             </select>
           </label>`;
         }
+        if (m.tolType === "text") {
+          return `<label>${esc(m.label)}
+            <input type="text" name="value__${m.key}" class="result-metric-input" data-metric-key="${esc(m.key)}" ${req} />
+          </label>`;
+        }
+        if (m.tolType === "select") {
+          const opts = (m.options || []).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+          return `<label>${esc(m.label)}
+            <select name="value__${m.key}" class="result-metric-input" data-metric-key="${esc(m.key)}" ${req}>
+              <option value="">—</option>
+              ${opts}
+            </select>
+          </label>`;
+        }
         return `<label>${esc(m.label)} ${m.unit ? `<span class="unit-tag">${esc(m.unit)}</span>` : ""}
-          <input type="number" step="any" name="value__${m.key}" class="result-metric-input" data-metric-key="${esc(m.key)}" placeholder="${toleranceHint(m)}" />
+          <input type="number" step="any" name="value__${m.key}" class="result-metric-input" data-metric-key="${esc(m.key)}" placeholder="${toleranceHint(m)}" ${req} />
         </label>`;
       })
       .join("");

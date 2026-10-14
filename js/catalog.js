@@ -790,15 +790,20 @@
   ];
 
   // ------------------------------------------------------------------
-  // Teste manual / genérico (sem vínculo obrigatório com pylinac)
+  // Checklist / teste manual (sem vínculo obrigatório com pylinac) — o
+  // físico monta o próprio formulário de checagem, campo por campo:
+  // numérico (com unidade e nível de ação/tolerância), aprovado/reprovado,
+  // texto livre ou lista suspensa de opções, cada um opcionalmente
+  // obrigatório.
   // ------------------------------------------------------------------
   const MANUAL_TEST_TYPE = {
     id: "manual",
-    name: "Teste manual / genérico (sem pylinac)",
+    name: "Checklist / teste manual (campos personalizados)",
     group: "Genérico",
     pylinacRef: null,
     applicableTypes: ["linac", "ct", "brachy", "ortho", "other"],
-    description: "Registro manual de resultados numéricos ou aprovação/reprovação, com métricas definidas pelo usuário.",
+    description:
+      "Monte seu próprio formulário de checagem: campos numéricos (com unidade e nível de ação/tolerância), aprovado/reprovado, texto livre ou lista suspensa — cada um podendo ser marcado como obrigatório.",
     requiresFiles: false,
   };
 

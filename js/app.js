@@ -1055,7 +1055,8 @@
             if (!label) return null;
             const unit = fd.get(`mm_unit_${idx}`);
             const tolType = fd.get(`mm_toltype_${idx}`);
-            const entry = { key: slugify(label) + "_" + idx, label, unit, tolType };
+            const requiredInput = row.querySelector(`[name="mm_required_${idx}"]`);
+            const entry = { key: slugify(label) + "_" + idx, label, unit, tolType, required: requiredInput ? requiredInput.checked : false };
             if (tolType === "max" || tolType === "min") entry.tol = parseFloat(fd.get(`mm_${idx}__tol`));
             if (tolType === "range") {
               entry.tolLow = parseFloat(fd.get(`mm_${idx}__tolLow`));
@@ -1064,6 +1065,12 @@
             if (tolType === "action") {
               entry.actionPct = parseFloat(fd.get(`mm_${idx}__actionPct`));
               entry.tolerancePct = parseFloat(fd.get(`mm_${idx}__tolerancePct`));
+            }
+            if (tolType === "select") {
+              entry.options = (fd.get(`mm_${idx}__options`) || "")
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
             }
             return entry;
           })
