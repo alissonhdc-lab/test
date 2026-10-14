@@ -3,6 +3,12 @@ uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 pylinac>=3.40
 pydicom>=2.4
+# Decodificadores de pixel data comprimido (JPEG, JPEG-LS, JPEG 2000) — sem
+# eles, séries de tomógrafo comprimidas não abrem (o Pillow fica de fora de
+# propósito: ver analysis.py).
+pylibjpeg>=2.0
+pylibjpeg-libjpeg>=2.1
+pylibjpeg-openjpeg>=2.3
 matplotlib>=3.7
 scikit-image>=0.19
 scipy>=1.10

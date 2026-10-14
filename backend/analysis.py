@@ -614,25 +614,38 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
         saved_paths = rename_files_by_series_description(saved_paths)
         constructor_kwargs["use_filenames"] = True
 
-    if input_mode == "single":
-        if len(saved_paths) != 1:
-            raise AnalysisError("Este teste espera exatamente 1 arquivo.", 400)
-        instance = cls(str(saved_paths[0]), **constructor_kwargs)
-    elif input_mode == "pair":
-        if len(saved_paths) != 2:
-            raise AnalysisError(
-                "Este teste espera exatamente 2 arquivos (campo aberto e campo de teste, nesta ordem).", 400
-            )
-        instance = cls([str(p) for p in saved_paths])
-    elif input_mode == "multiple":
-        instance = cls(tmp_dir, **constructor_kwargs)
-    elif input_mode == "series":
-        if len(saved_paths) == 1 and saved_paths[0].suffix.lower() == ".zip":
-            instance = cls(str(saved_paths[0]), is_zip=True)
+    if input_mode == "single" and len(saved_paths) != 1:
+        raise AnalysisError("Este teste espera exatamente 1 arquivo.", 400)
+    if input_mode == "pair" and len(saved_paths) != 2:
+        raise AnalysisError(
+            "Este teste espera exatamente 2 arquivos (campo aberto e campo de teste, nesta ordem).", 400
+        )
+    try:
+        if input_mode == "single":
+            instance = cls(str(saved_paths[0]), **constructor_kwargs)
+        elif input_mode == "pair":
+            instance = cls([str(p) for p in saved_paths])
+        elif input_mode == "multiple":
+            instance = cls(tmp_dir, **constructor_kwargs)
+        elif input_mode == "series":
+            if len(saved_paths) == 1 and saved_paths[0].suffix.lower() == ".zip":
+                instance = cls(str(saved_paths[0]), is_zip=True)
+            else:
+                instance = cls(tmp_dir)
         else:
-            instance = cls(tmp_dir)
-    else:
-        raise AnalysisError(f"input_mode não suportado: {input_mode}", 500)
+            raise AnalysisError(f"input_mode não suportado: {input_mode}", 500)
+    except RuntimeError as e:
+        # Imagem com pixel data comprimido (JPEG / JPEG 2000 / JPEG-LS — comum
+        # em tomógrafos) e nenhum decodificador instalado no ambiente do backend.
+        if "missing required dependencies" in str(e):
+            logger.error("Decodificador DICOM ausente: %s", e)
+            raise AnalysisError(
+                "As imagens DICOM estão comprimidas (JPEG/JPEG 2000) e o backend não tem "
+                "decodificador instalado. No computador do backend, com o ambiente virtual "
+                "ativado, rode: pip install -r requirements.txt — e reinicie o backend.",
+                500,
+            )
+        raise
 
     pre_analyze_hook = config.get("pre_analyze_hook")
     if pre_analyze_hook:
