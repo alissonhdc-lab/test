@@ -530,3 +530,22 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
      resto da página no lugar. */
   .data-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
+
+/* Dosimetria TRS-398: leituras em grade (colunas 1–6 da planilha) */
+.readings-grid { margin: 10px 0 14px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+.readings-head, .readings-row { display: grid; grid-template-columns: minmax(140px, 1fr) 3fr; column-gap: 10px; row-gap: 2px; align-items: center; }
+.readings-head > span:nth-child(2) { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; text-align: center; }
+.readings-row { padding: 6px 0; border-top: 1px solid var(--border); }
+.readings-label { font-size: 13px; }
+.readings-cells { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.readings-cells input { width: 100%; min-width: 0; padding: 6px 4px; text-align: center; }
+.readings-stats { grid-column: 2; }
+.dosimetry-context { margin-top: 10px; font-size: 13px; display: grid; gap: 4px; }
+.dosimetry-target { margin-top: 4px; padding: 8px 10px; border-radius: 8px; background: var(--warning-bg); }
+
+@media (max-width: 860px) {
+  .readings-head { display: none; }
+  .readings-row { grid-template-columns: 1fr; gap: 6px; }
+  .readings-cells { grid-template-columns: repeat(3, 1fr); }
+  .readings-stats { grid-column: 1; }
+}

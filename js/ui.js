@@ -516,6 +516,11 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
             isAdmin
               ? `<button class="btn" data-action="edit-equipment" data-id="${equipment.id}">Editar equipamento</button>
           <button class="btn btn-danger" data-action="delete-equipment" data-id="${equipment.id}">Excluir</button>
+          ${
+            equipment.type === "linac"
+              ? `<button class="btn" data-action="import-dosimetry" data-equipment-id="${equipment.id}">Importar planilha de dosimetria</button>`
+              : ""
+          }
           <button class="btn btn-primary" data-action="new-routine" data-equipment-id="${equipment.id}">+ Nova rotina de CQ</button>`
               : ""
           }
@@ -1112,6 +1117,17 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // ------------------------------------------------------------------
   // Detalhe da rotina — resultados, tendências, aprovação
   // ------------------------------------------------------------------
+  // Até 3 métricas para o resumo de um resultado no histórico: primeiro as
+  // que o módulo destaca (summaryKeys), depois as demais na ordem da rotina —
+  // pulando as que esse resultado não tem (ex.: histórico importado de
+  // planilha, que só traz Fcal/qualidade/P/T).
+  function summaryMetrics(metrics, module, values) {
+    const has = (m) => values[m.key] !== undefined && values[m.key] !== null;
+    const preferred = ((module && module.summaryKeys) || []).map((k) => metrics.find((m) => m.key === k)).filter((m) => m && has(m));
+    const picked = preferred.concat(metrics.filter((m) => has(m) && !preferred.includes(m))).slice(0, 3);
+    return picked.length ? picked : metrics.slice(0, 3);
+  }
+
   function renderRoutineDetail(db, equipment, routine, selectedMetricKeys, watchFolders, allResults, filteredResults, filters, filterOptions, session) {
     const isAdmin = session.role === "admin";
     const module = moduleForRoutine(routine);
@@ -1134,9 +1150,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     const resultRows = results
       .map((res) => {
         const passed = computeResultPass(routine, res);
-        const valuesSummary = metrics
-          .slice(0, 3)
-          .map((m) => `${esc(m.label)}: <b>${formatMetricValue(m, res.values[m.key])}</b>${m.unit && res.values[m.key] !== undefined ? " " + esc(m.unit) : ""}`)
+        const valuesSummary = summaryMetrics(metrics, module, res.values)
+          .map((m) => `${esc(m.label)}: <b>${formatMetricValue(m, res.values[m.key], module)}</b>${m.unit && res.values[m.key] !== undefined ? " " + esc(m.unit) : ""}`)
           .join(" · ");
         return `
         <tr>
@@ -1306,14 +1321,18 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return (rounded === 0 ? 0 : rounded).toFixed(decimals);
   }
 
-  function formatMetricValue(m, value) {
+  // Casas decimais: o catálogo atual tem prioridade (rotinas antigas guardam
+  // cópia congelada das métricas, sem "decimals"); padrão 2 (1 para ângulos).
+  function formatMetricValue(m, value, module) {
     if (value === undefined || value === null || value === "") return "—";
     if (m.tolType === "bool") {
       if (value === true || value === "true") return "Aprovado";
       if (value === false || value === "false") return "Reprovado";
       return "—";
     }
-    const formatted = fixDecimals(value, isAngleUnit(m.unit) ? 1 : 2);
+    const catalogMetric = module && module.metrics ? module.metrics.find((cm) => cm.key === m.key) : null;
+    const decimals = (catalogMetric && catalogMetric.decimals) ?? m.decimals ?? (isAngleUnit(m.unit) ? 1 : 2);
+    const formatted = fixDecimals(value, decimals);
     return formatted === null ? esc(value) : formatted;
   }
 
@@ -1439,23 +1458,49 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   // Formulário de lançamento da sessão mensal de dosimetria TRS-398 — o
   // que o físico digita a cada execução (leituras, P/T, checkboxes). Os
   // parâmetros de referência (routine.params) não entram aqui, já estão
-  // fixados na rotina. type "readings" vira um campo de texto único
-  // (réplicas separadas por vírgula) — mais simples que uma grade
-  // dinâmica de linhas, e igualmente fiel à planilha original (até 6
-  // réplicas por leitura).
-  function trs398SessionFormHtml(assetsByType) {
+  // fixados na rotina. type "readings" vira uma linha com 6 campos (as
+  // colunas 1–6 da planilha), com a média e o Max/Min (%) ao lado.
+  const READINGS_PER_ROW = 6;
+
+  function readingsRowHtml(f) {
+    const cells = Array.from(
+      { length: READINGS_PER_ROW },
+      (_, i) => `<input type="number" step="any" class="reading-input" aria-label="${esc(f.label)} — leitura ${i + 1}" />`
+    ).join("");
+    return `
+      <div class="readings-row trs398-session-input${f.showWhen ? " hidden" : ""}" data-session-key="${esc(f.key)}" data-session-type="readings"
+        ${f.showWhen ? `data-show-when="${esc(f.showWhen)}"` : ""} ${f.required ? 'data-required="true"' : ""}>
+        <div class="readings-label">${esc(f.label)} <span class="unit-tag">nC</span></div>
+        <div class="readings-cells">${cells}</div>
+        <div class="readings-stats muted small" data-readings-stats>média — · Max/Min —</div>
+      </div>`;
+  }
+
+  // Média e Max/Min (%) de uma linha de leituras — mesma conta da planilha:
+  // 100 × (1 − MÁX/MÍN).
+  function readingsStats(values) {
+    if (!values.length) return "média — · Max/Min —";
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    const min = Math.min(...values);
+    const spread = values.length > 1 && min !== 0 ? 100 * (1 - Math.max(...values) / min) : null;
+    return `média ${fixDecimals(avg, 4)} · Max/Min ${spread === null ? "—" : fixDecimals(spread, 2) + "%"}`;
+  }
+
+  function trs398SessionFormHtml(assetsByType, routine) {
     assetsByType = assetsByType || {};
-    const fields = DOSIMETRY_TRS398_TYPE.sessionFields
+    const beamType = ((routine && routine.params) || {}).beam_type || "fotons";
+    const sessionFields = DOSIMETRY_TRS398_TYPE.sessionFields.filter((f) => !f.beamType || f.beamType === beamType);
+    const readingRows = sessionFields
+      .filter((f) => f.type === "readings")
+      .map((f) => readingsRowHtml(f))
+      .join("");
+    const fields = sessionFields
+      .filter((f) => f.type !== "readings")
       .map((f) => {
         if (f.type === "checkbox") {
           return `<label class="checkbox-label">
             <input type="checkbox" name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="checkbox" />
             ${esc(f.label)}
-          </label>`;
-        }
-        if (f.type === "readings") {
-          return `<label>${esc(f.label)}
-            <input type="text" name="session__${f.key}" class="trs398-session-input" data-session-key="${esc(f.key)}" data-session-type="readings" placeholder="ex.: 11.54, 11.55, 11.54" ${f.required ? "required" : ""} />
           </label>`;
         }
         if (f.type === "asset-select") {
@@ -1481,8 +1526,13 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     <div class="trs398-session-section" data-module-id="trs398">
       <h4>Dosimetria Absoluta Mensal (TRS-398) — leituras desta sessão</h4>
       <div class="params-grid">${fields}</div>
+      <div class="readings-grid">
+        <div class="readings-head muted small"><span>Leituras M</span><span>${Array.from({ length: READINGS_PER_ROW }, (_, i) => `<b>${i + 1}</b>`).join("")}</span></div>
+        ${readingRows}
+      </div>
       <button type="button" class="btn btn-primary" data-action="run-dosimetry-calculation">▶ Calcular</button>
       <div id="pylinac-analysis-status" class="pylinac-status muted small"></div>
+      <div id="dosimetry-context" class="dosimetry-context hidden"></div>
       <details id="pylinac-raw-details" class="hidden mt">
         <summary>Ver todos os dados calculados</summary>
         <pre id="pylinac-raw-json" class="raw-json"></pre>
@@ -1538,7 +1588,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <input type="text" name="performedByName" required placeholder="Nome de quem realizou o teste" />
       </label>
       ${showUpload ? pylinacUploadSectionHtml(module) : ""}
-      ${showTrs398 ? trs398SessionFormHtml(assetsByType) : ""}
+      ${showTrs398 ? trs398SessionFormHtml(assetsByType, routine) : ""}
       ${
         module && !module.requiresFiles && !showTrs398 && module.autoAnalysisNote
           ? `<p class="muted small">ℹ️ ${esc(module.autoAnalysisNote)}</p>`
@@ -1650,10 +1700,11 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   function resultDetailHtml(routine, result, session) {
     const isAdmin = session.role === "admin";
     const metrics = routine.metrics || [];
+    const module = moduleForRoutine(routine);
     const rows = metrics
       .map((m) => {
         const v = result.values[m.key];
-        return `<tr><td class="metric-pass-cell">${metricPassIconHtml(m, v)}</td><td>${esc(m.label)}</td><td>${formatMetricValue(m, v)} ${v !== undefined && v !== "" ? esc(m.unit || "") : ""}</td><td>${esc(toleranceHint(m) || "—")}</td></tr>`;
+        return `<tr><td class="metric-pass-cell">${metricPassIconHtml(m, v)}</td><td>${esc(m.label)}</td><td>${formatMetricValue(m, v, module)} ${v !== undefined && v !== "" ? esc(m.unit || "") : ""}</td><td>${esc(toleranceHint(m) || "—")}</td></tr>`;
       })
       .join("");
     const wlDetails = winstonLutzImageDetails(routine, result);
@@ -1939,6 +1990,118 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   }
 
   global.RTQC = global.RTQC || {};
+  // Resumo mostrado logo após "Calcular" na dosimetria: de onde vieram o
+  // Ndw e o Ks/Kpol de referência, e — o número que interessa na hora de
+  // ajustar o acelerador — a leitura alvo para o rendimento esperado.
+  function dosimetryContextHtml(context, metrics) {
+    context = context || {};
+    metrics = metrics || {};
+    const n = (v, d) => (v === undefined || v === null ? "—" : fixDecimals(v, d));
+    const pct = (v) => (v === undefined || v === null ? "—" : fixDecimals(v, 2) + "%");
+    const lines = [];
+    if (context.chamber) {
+      lines.push(
+        `<div><b>Conjunto:</b> ${esc(context.chamber)}${context.electrometer ? " + " + esc(context.electrometer) : ""}${
+          context.working_voltage_v ? ` · ${esc(context.working_voltage_v)} V` : ""
+        }</div>`
+      );
+      lines.push(
+        `<div><b>N<sub>D,w</sub>:</b> ${n(context.ndw, 4)} cGy/nC${
+          context.ndw_uncertainty_pct ? ` ± ${esc(context.ndw_uncertainty_pct)}% (k=2)` : ""
+        }${context.ndw_date ? ` · desde ${fmtDate(context.ndw_date)}` : ""}${context.ndw_notes ? ` <span class="muted">(${esc(context.ndw_notes)})</span>` : ""}</div>`
+      );
+    }
+    if (metrics.ks_reference !== undefined || metrics.kpol_reference !== undefined) {
+      lines.push(
+        `<div><b>Ks/Kpol medidos:</b> ${n(metrics.ks, 5)} / ${n(metrics.kpol, 5)} · <b>referência do feixe:</b> ${n(metrics.ks_reference, 5)} / ${n(
+          metrics.kpol_reference,
+          5
+        )} (dif. ${pct(metrics.ks_deviation_pct)} / ${pct(metrics.kpol_deviation_pct)})</div>`
+      );
+    } else if (context.chamber) {
+      lines.push(`<div class="muted">Sem Ks/Kpol de referência desta câmara para este feixe em Ativos — esta sessão passa a ser a referência ao salvar.</div>`);
+    }
+    if (metrics.adjustment_target_reading_nc !== undefined) {
+      lines.push(
+        `<div class="dosimetry-target"><b>Leitura alvo para ajuste:</b> ${n(metrics.adjustment_target_reading_nc, 3)} nC <span class="muted">(para o rendimento esperado, nas mesmas condições desta sessão)</span></div>`
+      );
+    }
+    return lines.join("");
+  }
+
+  function dosimetryImportFormHtml() {
+    return `
+      <form id="dosimetry-import-form" class="form">
+        <p class="muted small">Envie as planilhas de dosimetria mensal (fótons <b>.xlsm</b> e/ou elétrons <b>.xls</b>). Nada é gravado até você conferir a prévia e confirmar.</p>
+        <label>Planilhas
+          <input type="file" id="dosimetry-import-files" accept=".xls,.xlsx,.xlsm" multiple required />
+        </label>
+        <button type="button" class="btn" data-action="dosimetry-import-preview">Ler planilhas</button>
+        <div id="dosimetry-import-preview" class="mt"></div>
+        <div id="dosimetry-import-error" class="form-error"></div>
+      </form>`;
+  }
+
+  function dosimetryImportPreviewHtml(summary, machineName) {
+    const machines = summary.machines || [];
+    if (!machines.length) return `<div class="empty-state">Nenhum feixe ou histórico encontrado nas planilhas.</div>`;
+    const machine = machines.find((m) => m.name === machineName) || machines[0];
+    const machineOptions = machines
+      .map((m) => `<option value="${esc(m.name)}" ${m.name === machine.name ? "selected" : ""}>${esc(m.name)}</option>`)
+      .join("");
+    const beamRows = machine.beams
+      .map(
+        (b) => `
+        <tr>
+          <td><input type="checkbox" name="dosimetry-import-beam" value="${esc(b.beamId)}" ${b.active ? "checked" : ""} /></td>
+          <td><b>${esc(b.energy)}</b> <span class="muted small">${b.beamType === "eletrons" ? "elétrons" : b.beamType === "fotons" ? "fótons" : ""}</span></td>
+          <td>${b.active ? '<span class="badge badge-success">aba ativa</span>' : '<span class="badge badge-muted">só histórico</span>'}</td>
+          <td>${b.historyCount}${b.firstDate ? ` <span class="muted small">(${fmtDate(b.firstDate)} → ${fmtDate(b.lastDate)})</span>` : ""}</td>
+          <td class="small">${esc(b.setName || "—")}${b.hasReference ? "" : ' <span class="form-error">sem dados na aba Feixes</span>'}</td>
+        </tr>`
+      )
+      .join("");
+    const sets = (summary.sets || [])
+      .map((s) => `<li>${esc(s.chamber)} + ${esc(s.electrometer || "—")} — N<sub>D,w</sub> ${esc(s.ndw)} cGy/nC <span class="muted">(${esc(s.certificate || "—")}${s.date ? ", " + fmtDate(s.date) : ""})</span></li>`)
+      .join("");
+    return `
+      <div class="panel-inset">
+        <p class="small muted">Lido: ${(summary.files || []).map((f) => `${esc(f.name)} (${f.kind === "eletrons" ? "elétrons" : f.kind === "fotons" ? "fótons" : "?"})`).join(" · ")}</p>
+        <label>Acelerador da planilha que corresponde a este equipamento
+          <select id="dosimetry-import-machine">${machineOptions}</select>
+        </label>
+        <table class="data-table mt">
+          <thead><tr><th></th><th>Feixe</th><th></th><th>Medições no histórico</th><th>Conjunto dosimétrico</th></tr></thead>
+          <tbody>${beamRows}</tbody>
+        </table>
+        <p class="small mt"><b>Câmaras e eletrômetros</b> (vão para Ativos, com o histórico de N<sub>D,w</sub>):</p>
+        <ul class="small">${sets}</ul>
+        <p class="small muted">Cada feixe marcado vira uma rotina "Dosimetria Mensal TRS-398" já configurada (PDP, Zref, UM, rendimento e qualidade esperados, kQ e câmara), e o histórico entra como resultados dessa rotina. Reimportar a mesma planilha não duplica nada.</p>
+        <label class="checkbox-label"><input type="checkbox" id="dosimetry-import-approve" checked /> Marcar o histórico importado como aprovado (assinado por você)</label>
+        <div id="dosimetry-import-signature" class="form-grid-2">
+          <label>Usuário <input type="text" id="dosimetry-import-username" autocomplete="username" /></label>
+          <label>Senha <input type="password" id="dosimetry-import-password" autocomplete="current-password" /></label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" data-action="dosimetry-import-commit">Importar</button>
+        </div>
+      </div>`;
+  }
+
+  function dosimetryImportResultHtml(stats) {
+    const warnings = (stats.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
+    return `
+      <div class="panel-inset">
+        <p><b>Importação concluída.</b></p>
+        <ul class="small">
+          <li>Rotinas criadas: ${stats.routinesCreated} · já existentes (reaproveitadas): ${stats.routinesReused}</li>
+          <li>Resultados do histórico importados: ${stats.resultsCreated} · já existentes (ignorados): ${stats.resultsSkipped}</li>
+          <li>Ativos criados: ${stats.assetsCreated} · medições (N<sub>D,w</sub>, Ks/Kpol de referência): ${stats.measurementsCreated}</li>
+        </ul>
+        ${warnings ? `<p class="small"><b>Conferir:</b></p><ul class="small">${warnings}</ul>` : ""}
+      </div>`;
+  }
+
   global.RTQC.ui = {
     esc,
     fmtDate,
@@ -1968,6 +2131,11 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     formatMetricValue,
     isAngleUnit,
     fixDecimals,
+    readingsStats,
+    dosimetryContextHtml,
+    dosimetryImportFormHtml,
+    dosimetryImportPreviewHtml,
+    dosimetryImportResultHtml,
     resultFormHtml,
     resultDetailHtml,
     winstonLutzImageDetails,

@@ -105,7 +105,28 @@ def get_conn():
     # e evita reentrância no lock (write_auto_backup_now também usa get_conn
     # para ler os dados a exportar).
     if changed:
-        write_auto_backup_now()
+        if _deferred_backup["depth"]:
+            _deferred_backup["pending"] = True
+        else:
+            write_auto_backup_now()
+
+
+_deferred_backup = {"depth": 0, "pending": False}
+
+
+@contextmanager
+def deferred_auto_backup():
+    """Para lotes grandes de escrita (ex.: importar centenas de resultados
+    de uma planilha): grava o backup automático uma vez só, no fim, em vez
+    de uma cópia completa do banco a cada linha inserida."""
+    _deferred_backup["depth"] += 1
+    try:
+        yield
+    finally:
+        _deferred_backup["depth"] -= 1
+        if _deferred_backup["depth"] == 0 and _deferred_backup["pending"]:
+            _deferred_backup["pending"] = False
+            write_auto_backup_now()
 
 
 SCHEMA = """
@@ -604,21 +625,27 @@ def get_latest_asset_measurement(asset_id):
         return _row_to_asset_measurement(row) if row else None
 
 
-def get_latest_asset_measurement_field(asset_id, field):
+def get_latest_asset_measurement_field(asset_id, field, beam_label=None):
     """Última medição da câmara em que aquele campo específico foi
     preenchido — usado porque Ndw (calibração externa, muda raramente) e
     Ks/Kpol (calculados a cada sessão de dosimetria, ver dosimetry_trs398.py)
     são atualizados em ritmos bem diferentes: pegar só "a linha mais
     recente" (get_latest_asset_measurement) erraria o Ndw sempre que a
-    entrada mais nova for um lançamento automático de Ks/Kpol sem Ndw."""
+    entrada mais nova for um lançamento automático de Ks/Kpol sem Ndw.
+
+    beam_label: Ks e Kpol dependem do feixe (a planilha guarda um valor por
+    feixe × conjunto), então para eles a busca precisa ser só entre as
+    medições daquele feixe."""
     if field not in ("ndw", "ks", "kpol"):
         raise ValueError(f"Campo inválido: {field}")
+    sql = f"SELECT * FROM asset_measurements WHERE asset_id = ? AND {field} IS NOT NULL"
+    args = [asset_id]
+    if beam_label is not None:
+        sql += " AND beam_label = ?"
+        args.append(beam_label)
+    sql += " ORDER BY measured_at DESC, created_at DESC LIMIT 1"
     with get_conn() as conn:
-        row = conn.execute(
-            f"SELECT * FROM asset_measurements WHERE asset_id = ? AND {field} IS NOT NULL "
-            "ORDER BY measured_at DESC, created_at DESC LIMIT 1",
-            (asset_id,),
-        ).fetchone()
+        row = conn.execute(sql, args).fetchone()
         return _row_to_asset_measurement(row) if row else None
 
 

@@ -48,6 +48,7 @@ import db
 import snc_watcher
 import watcher
 from analysis import AnalysisError, run_analysis
+import dosimetry_import
 from dosimetry_trs398 import DosimetryError, calculate as calculate_dosimetry_trs398
 from modules_config import MODULES
 from sncdata_import import list_active_templates
@@ -428,11 +429,20 @@ def _maybe_log_trs398_measurement(result_data: dict):
                 "measuredAt": result_data.get("date") or db.now_iso()[:10],
                 "ks": float(ks_raw) if ks_raw not in (None, "") else None,
                 "kpol": float(kpol_raw) if kpol_raw not in (None, "") else None,
-                "beamLabel": f"Sessão TRS-398 — {routine.get('name')}",
+                "beamLabel": _trs398_beam_label(routine),
             },
         )
     except (TypeError, ValueError):
         logger.exception("Falha ao registrar Ks/Kpol automaticamente no histórico do ativo %s", chamber_asset_id)
+
+
+def _trs398_beam_label(routine):
+    """Identifica o feixe da rotina no histórico de Ks/Kpol da câmara (Ks e
+    Kpol dependem do feixe). Rotinas com feixe da biblioteca/importadas usam
+    o ID do feixe (ex.: "SynergyX6", o mesmo da planilha); as antigas, sem
+    esse campo, continuam com o rótulo que já usavam."""
+    params = routine.get("params") or {}
+    return params.get("beam_id") or f"Sessão TRS-398 — {routine.get('name')}"
 
 
 @app.post("/api/resultados/{result_id}/approve")
@@ -697,6 +707,9 @@ async def dosimetry_calculate(
     check_api_key(x_api_key)
     params_dict = dict(payload.get("params") or {})
     session_dict = payload.get("session") or {}
+    routine = db.get_routine(payload.get("routineId")) if payload.get("routineId") else None
+    beam_label = _trs398_beam_label(routine) if routine else params_dict.get("beam_id")
+    context = {}
 
     chamber_asset_id = params_dict.get("chamber_asset_id")
     if chamber_asset_id:
@@ -710,18 +723,106 @@ async def dosimetry_calculate(
                 detail=f"A câmara \"{chamber['name']}\" ainda não tem nenhum Ndw cadastrado em Ativos.",
             )
         params_dict["ndw"] = latest_ndw["ndw"]
-        latest_ks = db.get_latest_asset_measurement_field(chamber_asset_id, "ks")
-        if latest_ks:
-            params_dict["last_known_ks"] = latest_ks["ks"]
-        latest_kpol = db.get_latest_asset_measurement_field(chamber_asset_id, "kpol")
-        if latest_kpol:
-            params_dict["last_known_kpol"] = latest_kpol["kpol"]
+        context.update(
+            chamber=chamber["name"],
+            ndw=latest_ndw["ndw"],
+            ndw_uncertainty_pct=latest_ndw.get("ndwUncertaintyPct"),
+            ndw_date=latest_ndw.get("measuredAt"),
+            ndw_notes=latest_ndw.get("notes"),
+            working_voltage_v=latest_ndw.get("workingVoltageV"),
+        )
+        electrometer = db.get_asset(params_dict.get("electrometer_asset_id")) if params_dict.get("electrometer_asset_id") else None
+        if electrometer:
+            context["electrometer"] = electrometer["name"]
+        # Referência de Ks/Kpol = última medição desta câmara NESTE feixe.
+        if beam_label:
+            latest_ks = db.get_latest_asset_measurement_field(chamber_asset_id, "ks", beam_label)
+            if latest_ks:
+                params_dict["ks_reference"] = latest_ks["ks"]
+                context["ks_reference_date"] = latest_ks.get("measuredAt")
+            latest_kpol = db.get_latest_asset_measurement_field(chamber_asset_id, "kpol", beam_label)
+            if latest_kpol:
+                params_dict["kpol_reference"] = latest_kpol["kpol"]
+                context["kpol_reference_date"] = latest_kpol.get("measuredAt")
 
     try:
         result = calculate_dosimetry_trs398(params_dict, session_dict)
-        return JSONResponse({"success": True, **result})
+        return JSONResponse({"success": True, "context": context, **result})
     except DosimetryError as e:
         raise HTTPException(status_code=422, detail=e.message)
+
+
+def _parse_dosimetry_uploads(files, tmp_dir):
+    paths = []
+    for i, f in enumerate(files):
+        name = Path(f.filename or "").name
+        if Path(name).suffix.lower() not in (".xls", ".xlsx", ".xlsm"):
+            raise HTTPException(status_code=400, detail=f"Arquivo não suportado: {name or '(sem nome)'} — envie as planilhas .xls/.xlsm.")
+        # Uma subpasta por arquivo: dois envios com o mesmo nome não se
+        # sobrescrevem, e o nome original segue aparecendo na prévia.
+        dest = Path(tmp_dir) / str(i) / name
+        dest.parent.mkdir()
+        with open(dest, "wb") as out:
+            shutil.copyfileobj(f.file, out)
+        paths.append(dest)
+    try:
+        return dosimetry_import.parse_workbooks(paths)
+    except dosimetry_import.ImportError_ as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logger.exception("Falha ao ler as planilhas de dosimetria")
+        raise HTTPException(status_code=400, detail="Não foi possível ler as planilhas — confira se são as planilhas de dosimetria TRS-398.")
+
+
+@app.post("/api/dosimetry/import/preview")
+async def dosimetry_import_preview(files: List[UploadFile] = File(...), _: dict = Depends(require_admin)):
+    """Lê as planilhas de dosimetria e devolve o que seria importado
+    (aceleradores, feixes com histórico, conjuntos dosimétricos), sem gravar nada."""
+    tmp_dir = tempfile.mkdtemp(prefix="rtqc_dosi_")
+    try:
+        return dosimetry_import.summarize(_parse_dosimetry_uploads(files, tmp_dir))
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.post("/api/dosimetry/import/commit")
+async def dosimetry_import_commit(
+    files: List[UploadFile] = File(...),
+    options: str = Form(...),
+    _: dict = Depends(require_admin),
+):
+    """Importa de fato: câmaras/eletrômetros e Ndw em Ativos, Ks/Kpol de
+    referência por feixe, uma rotina TRS-398 por feixe escolhido e o
+    histórico como resultados. Aprovar o histórico exige assinatura
+    (usuário e senha de um administrador), como qualquer aprovação."""
+    try:
+        opts = json.loads(options)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Opções de importação inválidas.")
+    equipment = next((e for e in db.list_equipments() if e["id"] == opts.get("equipmentId")), None)
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado.")
+    if not opts.get("machine") or not opts.get("beamIds"):
+        raise HTTPException(status_code=400, detail="Escolha o acelerador da planilha e ao menos um feixe.")
+    approver = None
+    if opts.get("approve"):
+        approver = auth.verify_credentials(opts.get("username", ""), opts.get("password", ""))
+        if not approver or approver.get("role") != "admin":
+            raise HTTPException(status_code=401, detail="Usuário ou senha inválidos para assinar a aprovação do histórico.")
+    tmp_dir = tempfile.mkdtemp(prefix="rtqc_dosi_")
+    try:
+        data = _parse_dosimetry_uploads(files, tmp_dir)
+        return dosimetry_import.apply_import(
+            db,
+            data,
+            equipment["id"],
+            opts["machine"],
+            opts["beamIds"],
+            opts.get("metricsTemplate") or [],
+            approver=approver,
+        )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ==================================================================

@@ -29,9 +29,10 @@ physics data" e seção 7 "Determination of absorbed dose to water"):
 4. Ks (recombinação iônica, TRS-398 eq. 3.7/3.8, método de duas tensões
    de Boag para feixe pulsado) e Kpol (polaridade, TRS-398 eq. 3.6):
    SEMPRE calculados a partir das leituras M−/M+/M(V2) desta sessão —
-   nunca um valor fixo/de referência. O histórico de Ks/Kpol de cada
-   câmara em Ativos serve só de comparação/tendência (ver
-   `last_known_ks`/`last_known_kpol` abaixo), não entra na conta.
+   nunca um valor fixo/de referência. O Ks/Kpol de referência da câmara
+   para o mesmo feixe (histórico em Ativos, equivalente à aba "ks e kpol"
+   da planilha) serve só de comparação (`ks_reference`/`kpol_reference`
+   abaixo), não entra na conta.
 5. Dose absorvida na água em Zref: M1(média) × Ktp × Ks × Kpol × ND,w × kQ
    (TRS-398, eq. 7.1 — grandezas em nC/cGy/(cGy·nC⁻¹), sem unidade extra).
 6. Dose absorvida em Zmax (a grandeza que o físico quer conferir, já que
@@ -64,6 +65,15 @@ def _avg_maxmin(values):
     if len(nums) > 1 and min(nums) != 0:
         spread = 100 * (1 - max(nums) / min(nums))
     return avg, spread
+
+
+def _optional_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _ktp(pressure_mbar, temperature_c):
@@ -152,6 +162,10 @@ def calculate(params, session):
 
     ktp_val = _ktp(pressure, temperature)
     flat["ktp"] = ktp_val
+    # P e T também como métricas — a planilha guarda os dois no histórico
+    # e tem gráfico de tendência para cada um.
+    flat["pressure_mbar"] = pressure
+    flat["temperature_c"] = temperature
 
     # 1 - Qualidade do feixe
     pdd2010 = tpr2010 = None
@@ -178,7 +192,13 @@ def calculate(params, session):
         beam_quality_measured = None
 
     # 2 - kQ
-    if is_photon:
+    kq_fixed_photon = _optional_float(params.get("kq_fixed")) if is_photon else None
+    if is_photon and kq_fixed_photon is not None:
+        # kQ fixo também para fótons, quando configurado — a planilha faz
+        # isso para o X2 do TrueBeam (feixe de imagem, kQ = 1 direto, sem
+        # o polinômio).
+        kq_val = kq_fixed_photon
+    elif is_photon:
         try:
             a = float(params["kq_a"])
             b = float(params["kq_b"])
@@ -210,24 +230,20 @@ def calculate(params, session):
     kpol_val = _kpol(mplus_avg, m1_avg)
     flat["kpol"] = kpol_val
 
-    # Comparação informativa com a última medição conhecida da câmara em
-    # Ativos (histórico de Ks/Kpol) — não entra na conta, só sinaliza
-    # deriva do conjunto dosimétrico ao longo do tempo. main.py preenche
-    # esses dois parâmetros a partir do histórico do ativo, quando existe.
-    last_known_ks = params.get("last_known_ks")
-    last_known_kpol = params.get("last_known_kpol")
-    try:
-        last_known_ks = float(last_known_ks) if last_known_ks not in (None, "") else None
-    except (TypeError, ValueError):
-        last_known_ks = None
-    try:
-        last_known_kpol = float(last_known_kpol) if last_known_kpol not in (None, "") else None
-    except (TypeError, ValueError):
-        last_known_kpol = None
-    if last_known_ks is not None:
-        flat["ks_deviation_pct"] = (1 - ks_val / last_known_ks) * 100
-    if last_known_kpol is not None:
-        flat["kpol_deviation_pct"] = (1 - kpol_val / last_known_kpol) * 100
+    # Comparação informativa com o Ks/Kpol de referência da câmara PARA
+    # ESTE FEIXE (histórico da câmara em Ativos, filtrado pelo feixe — o
+    # equivalente à aba "ks e kpol" da planilha, que é por feixe × conjunto
+    # dosimétrico). Não entra na conta, só sinaliza deriva. Mesma fórmula
+    # da planilha: Dif(%) = (1 − medido/referência) × 100. main.py preenche
+    # ks_reference/kpol_reference (last_known_* = nome antigo, aceito).
+    ks_ref = _optional_float(params.get("ks_reference", params.get("last_known_ks")))
+    kpol_ref = _optional_float(params.get("kpol_reference", params.get("last_known_kpol")))
+    if ks_ref is not None:
+        flat["ks_reference"] = ks_ref
+        flat["ks_deviation_pct"] = (1 - ks_val / ks_ref) * 100
+    if kpol_ref is not None:
+        flat["kpol_reference"] = kpol_ref
+        flat["kpol_deviation_pct"] = (1 - kpol_val / kpol_ref) * 100
 
     # 5 - Dose medida (em Zref) e 6 - Fator de calibração (em Zmax)
     try:
@@ -251,6 +267,10 @@ def calculate(params, session):
     except (TypeError, ValueError):
         expected_fcal = 1.0
     flat["calibration_factor_deviation_pct"] = (fcal / expected_fcal - 1) * 100
+    # Leitura que o eletrômetro deveria marcar (mesma geometria e P/T desta
+    # sessão) para o feixe entregar exatamente o rendimento esperado — o
+    # alvo para ajustar a calibração do acelerador (planilha: célula AA57).
+    flat["adjustment_target_reading_nc"] = expected_fcal / fcal * m1_avg
 
     if is_photon:
         expected_quality = params.get("expected_beam_quality")

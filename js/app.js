@@ -544,6 +544,15 @@
       case "run-dosimetry-calculation":
         runDosimetryCalculation(el);
         break;
+      case "import-dosimetry":
+        openDosimetryImportModal(el.dataset.equipmentId);
+        break;
+      case "dosimetry-import-preview":
+        previewDosimetryImport();
+        break;
+      case "dosimetry-import-commit":
+        commitDosimetryImport(el);
+        break;
       case "view-result": {
         const db = await store.get();
         const result = db.results.find((x) => x.id === el.dataset.id);
@@ -816,7 +825,27 @@
     }
   });
 
+  // Leituras da dosimetria: média e Max/Min (%) ao lado de cada linha,
+  // atualizados a cada número digitado (como a planilha).
+  document.addEventListener("input", (e) => {
+    if (!e.target.classList.contains("reading-input")) return;
+    const row = e.target.closest(".readings-row");
+    row.querySelector("[data-readings-stats]").textContent = ui.readingsStats(readingsFromRow(row));
+  });
+
   document.addEventListener("change", (e) => {
+    if (e.target.matches(".trs398-session-input[data-session-type='checkbox']")) {
+      const key = e.target.dataset.sessionKey;
+      document
+        .querySelectorAll(`.readings-row[data-show-when="${key}"]`)
+        .forEach((row) => row.classList.toggle("hidden", !e.target.checked));
+    }
+    if (e.target.id === "dosimetry-import-machine") {
+      document.getElementById("dosimetry-import-preview").innerHTML = ui.dosimetryImportPreviewHtml(dosimetryImportState.summary, e.target.value);
+    }
+    if (e.target.id === "dosimetry-import-approve") {
+      document.getElementById("dosimetry-import-signature").classList.toggle("hidden", !e.target.checked);
+    }
     if (e.target.matches('input[name="testType"]')) {
       const val = e.target.value;
       document.getElementById("pylinac-section").classList.toggle("hidden", val !== "pylinac");
@@ -1327,19 +1356,18 @@
     const statusEl = document.getElementById("pylinac-analysis-status");
 
     const sessionData = {};
+    const missing = [];
     section.querySelectorAll(".trs398-session-input").forEach((input) => {
       const key = input.dataset.sessionKey;
       const type = input.dataset.sessionType;
       if (type === "checkbox") {
         sessionData[key] = input.checked;
       } else if (type === "readings") {
-        const raw = (input.value || "").trim();
-        sessionData[key] = raw
-          ? raw
-              .split(",")
-              .map((s) => Number(s.trim()))
-              .filter((n) => !Number.isNaN(n))
-          : [];
+        const hidden = input.classList.contains("hidden");
+        sessionData[key] = hidden ? [] : readingsFromRow(input);
+        if (!hidden && input.dataset.required && !sessionData[key].length) {
+          missing.push(input.querySelector(".readings-label").textContent.replace("nC", "").trim());
+        }
       } else if (type === "asset-select") {
         sessionData[key] = input.value || null;
       } else {
@@ -1347,11 +1375,19 @@
       }
     });
 
+    const contextEl = document.getElementById("dosimetry-context");
+    if (missing.length) {
+      statusEl.textContent = `Lance ao menos uma leitura em: ${missing.join("; ")}.`;
+      statusEl.className = "pylinac-status form-error";
+      return;
+    }
+
     const backendUrl = store.getBackendUrl();
     triggerEl.disabled = true;
     triggerEl.textContent = "Calculando...";
     statusEl.textContent = "";
     statusEl.className = "pylinac-status muted small";
+    contextEl.classList.add("hidden");
 
     try {
       const authSession = auth.currentSession();
@@ -1360,7 +1396,7 @@
       const resp = await fetch(`${backendUrl}/api/dosimetry/calculate`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ params: routine.params || {}, session: sessionData }),
+        body: JSON.stringify({ routineId, params: routine.params || {}, session: sessionData }),
       });
       const data = await resp.json();
       if (!resp.ok || !data.success) {
@@ -1389,6 +1425,8 @@
       statusEl.textContent =
         "Cálculo concluído." + (data.warnings && data.warnings.length ? ` Avisos: ${data.warnings.join("; ")}` : "");
       statusEl.className = "pylinac-status muted small";
+      contextEl.innerHTML = ui.dosimetryContextHtml(data.context, data.metrics);
+      contextEl.classList.remove("hidden");
       modal.toast("Cálculo da dosimetria concluído. Confira os valores antes de salvar.", "success");
     } catch (err) {
       const isNetworkError = err instanceof TypeError;
@@ -1405,6 +1443,82 @@
 
   function cssEscape(str) {
     return String(str).replace(/[.[\]"']/g, "\\$&");
+  }
+
+  function readingsFromRow(row) {
+    return Array.from(row.querySelectorAll(".reading-input"))
+      .map((input) => (input.value === "" ? NaN : Number(input.value)))
+      .filter((n) => !Number.isNaN(n));
+  }
+
+  // ---- Importação das planilhas de dosimetria (TRS-398) ----
+  const dosimetryImportState = { equipmentId: null, files: [], summary: null };
+
+  function openDosimetryImportModal(equipmentId) {
+    Object.assign(dosimetryImportState, { equipmentId, files: [], summary: null });
+    modal.openModal({ title: "Importar planilha de dosimetria (TRS-398)", bodyHtml: ui.dosimetryImportFormHtml(), wide: true });
+  }
+
+  async function previewDosimetryImport() {
+    const errorBox = document.getElementById("dosimetry-import-error");
+    const files = Array.from(document.getElementById("dosimetry-import-files").files || []);
+    errorBox.textContent = "";
+    if (!files.length) {
+      errorBox.textContent = "Escolha ao menos uma planilha.";
+      return;
+    }
+    const target = document.getElementById("dosimetry-import-preview");
+    target.innerHTML = `<p class="muted small">Lendo planilhas...</p>`;
+    try {
+      const summary = await store.previewDosimetryImport(files);
+      Object.assign(dosimetryImportState, { files, summary });
+      target.innerHTML = ui.dosimetryImportPreviewHtml(summary);
+      const session = auth.currentSession();
+      if (session) document.getElementById("dosimetry-import-username").value = session.username || "";
+    } catch (err) {
+      target.innerHTML = "";
+      errorBox.textContent = err.message;
+    }
+  }
+
+  async function commitDosimetryImport(triggerEl) {
+    const errorBox = document.getElementById("dosimetry-import-error");
+    const beamIds = Array.from(document.querySelectorAll('input[name="dosimetry-import-beam"]:checked')).map((el) => el.value);
+    errorBox.textContent = "";
+    if (!beamIds.length) {
+      errorBox.textContent = "Marque ao menos um feixe para importar.";
+      return;
+    }
+    const approve = document.getElementById("dosimetry-import-approve").checked;
+    // Métricas/tolerâncias padrão do catálogo para as rotinas novas — as
+    // mesmas que uma rotina TRS-398 criada à mão recebe.
+    const metricsTemplate = catalog.DOSIMETRY_TRS398_TYPE.metrics.map((m) => {
+      const entry = { key: m.key, label: m.label, unit: m.unit, tolType: m.tolType };
+      ["tol", "tolLow", "tolHigh", "actionPct", "tolerancePct", "plottable"].forEach((k) => {
+        if (m[k] !== undefined) entry[k] = m[k];
+      });
+      return entry;
+    });
+    triggerEl.disabled = true;
+    triggerEl.textContent = "Importando...";
+    try {
+      const stats = await store.commitDosimetryImport(dosimetryImportState.files, {
+        equipmentId: dosimetryImportState.equipmentId,
+        machine: document.getElementById("dosimetry-import-machine").value,
+        beamIds,
+        metricsTemplate,
+        approve,
+        username: approve ? document.getElementById("dosimetry-import-username").value : undefined,
+        password: approve ? document.getElementById("dosimetry-import-password").value : undefined,
+      });
+      document.getElementById("dosimetry-import-preview").innerHTML = ui.dosimetryImportResultHtml(stats);
+      modal.toast("Planilha de dosimetria importada.", "success");
+      render();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      triggerEl.disabled = false;
+      triggerEl.textContent = "Importar";
+    }
   }
 
   function openApprovalModal(resultId) {

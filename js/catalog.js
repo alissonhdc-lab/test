@@ -921,6 +921,10 @@
         optionLabels: { fotons: "Fótons", eletrons: "Elétrons" },
         default: "fotons",
       },
+      // Mesmo ID da planilha (Acelerador+Energia, ex.: "SynergyX6"): é por
+      // ele que o Ks/Kpol de referência da câmara é buscado em Ativos (Ks e
+      // Kpol dependem do feixe).
+      { key: "beam_id", label: "ID do feixe (acelerador + energia, ex.: SynergyX6)", type: "text", default: "" },
       { key: "reference_field", label: "Campo de referência", type: "text", default: "10x10" },
       { key: "ssd_cm", label: "SSD", type: "number", default: 100, unit: "cm" },
       { key: "zref_cm", label: "Zref (profundidade de referência)", type: "number", default: 10, unit: "cm" },
@@ -945,7 +949,7 @@
       { key: "kq_d", label: "kQ — coeficiente d", type: "number", default: "" },
       {
         key: "kq_fixed",
-        label: "kQ tabelado (elétrons, câmara de placas paralelas)",
+        label: "kQ fixo (elétrons: valor tabelado · fótons: opcional, substitui o polinômio — ex.: X2 = 1)",
         type: "number",
         default: "",
       },
@@ -972,8 +976,10 @@
     // da câmara automaticamente ao salvar o resultado.
     // sessionFields: o que o físico lança a cada dosimetria mensal (não
     // fica salvo na rotina — vem junto de cada resultado). type
-    // "readings" = lista de réplicas separadas por vírgula (até 6, como
-    // na planilha original).
+    // "readings" = linha de até 6 réplicas (colunas 1–6 da planilha).
+    // summaryKeys: o que aparece primeiro no resumo de cada resultado do
+    // histórico da rotina.
+    summaryKeys: ["final_calibration_factor_cgy_um", "final_calibration_factor_deviation_pct", "tpr_20_10"],
     sessionFields: [
       { key: "pressure_mbar", label: "Pressão (P)", type: "number", unit: "mBar", required: true },
       {
@@ -989,58 +995,59 @@
         type: "asset-select",
         assetType: ["thermometer", "thermo_hygrometer"],
       },
+      // type "readings" = até 6 réplicas por linha (como as colunas 1–6 da
+      // planilha), com média e Max/Min (%) calculados na hora.
       {
         key: "m1_readings",
-        label: "Leituras M1 = M− (tensão nominal, nC) — separe por vírgula",
+        label: "M1 = M− (tensão nominal, em Zref) — fótons: é também o D10",
         type: "readings",
         required: true,
       },
-      {
-        key: "m_plus_readings",
-        label: "Leituras M+ (polaridade invertida, nC) — separe por vírgula",
-        type: "readings",
-        required: true,
-      },
-      {
-        key: "m2_readings",
-        label: "Leituras M2 (meia tensão, nC) — separe por vírgula",
-        type: "readings",
-        required: true,
-      },
-      {
-        key: "d20_readings",
-        label: "Leituras D20 (20cm de profundidade, nC) — só fótons — separe por vírgula",
-        type: "readings",
-      },
+      { key: "m_plus_readings", label: "M+ (polaridade invertida)", type: "readings", required: true },
+      { key: "m2_readings", label: "M2 (meia tensão)", type: "readings", required: true },
+      { key: "d20_readings", label: "D20 (20 cm de profundidade)", type: "readings", required: true, beamType: "fotons" },
       { key: "adjustment_made", label: "Foi feito ajuste no acelerador nesta sessão?", type: "checkbox" },
       {
         key: "post_adjustment_readings",
-        label: "Leituras pós-ajuste (nC) — separe por vírgula",
+        label: "Leituras após o ajuste (em Zref)",
         type: "readings",
+        showWhen: "adjustment_made",
       },
     ],
     metrics: [
-      { key: "ktp", label: "Ktp (correção pressão/temperatura)", unit: "", tolType: "info" },
-      { key: "pdd_20_10", label: "PDD20,10 medido", unit: "", tolType: "info" },
-      { key: "tpr_20_10", label: "TPR20,10 medido", unit: "", tolType: "info" },
-      { key: "kq", label: "kQ (fator de correção da qualidade do feixe)", unit: "", tolType: "info" },
-      { key: "ks", label: "Ks (recombinação iônica, calculado de M−/M2)", unit: "", tolType: "info" },
+      { key: "ktp", label: "Ktp (correção pressão/temperatura)", unit: "", tolType: "info", decimals: 5 },
+      { key: "pdd_20_10", label: "PDD20,10 medido", unit: "", tolType: "info", decimals: 4 },
+      { key: "tpr_20_10", label: "TPR20,10 medido", unit: "", tolType: "info", decimals: 4 },
+      { key: "kq", label: "kQ (fator de correção da qualidade do feixe)", unit: "", tolType: "info", decimals: 4 },
+      { key: "pressure_mbar", label: "Pressão", unit: "mBar", tolType: "info", decimals: 1 },
+      { key: "temperature_c", label: "Temperatura", unit: "°C", tolType: "info", decimals: 1 },
+      { key: "ks", label: "Ks (recombinação iônica, calculado de M−/M2)", unit: "", tolType: "info", decimals: 5 },
+      { key: "ks_reference", label: "Ks de referência (câmara, mesmo feixe)", unit: "", tolType: "info", plottable: false, decimals: 5 },
       {
         key: "ks_deviation_pct",
-        label: "Desvio do Ks vs. última medição da câmara em Ativos",
+        label: "Dif. do Ks vs. referência do feixe",
         unit: "%",
         tolType: "info",
       },
-      { key: "kpol", label: "Kpol (polaridade, calculado de M−/M+)", unit: "", tolType: "info" },
+      { key: "kpol", label: "Kpol (polaridade, calculado de M−/M+)", unit: "", tolType: "info", decimals: 5 },
+      { key: "kpol_reference", label: "Kpol de referência (câmara, mesmo feixe)", unit: "", tolType: "info", plottable: false, decimals: 5 },
       {
         key: "kpol_deviation_pct",
-        label: "Desvio do Kpol vs. última medição da câmara em Ativos",
+        label: "Dif. do Kpol vs. referência do feixe",
         unit: "%",
         tolType: "info",
+      },
+      {
+        key: "adjustment_target_reading_nc",
+        decimals: 3,
+        label: "Leitura alvo para ajuste (rendimento esperado)",
+        unit: "nC",
+        tolType: "info",
+        plottable: false,
       },
       { key: "dose_zref_cgy", label: "Dose absorvida em Zref", unit: "cGy", tolType: "info" },
       { key: "dose_zmax_cgy", label: "Dose absorvida em Zmax (antes de ajuste)", unit: "cGy", tolType: "info" },
-      { key: "calibration_factor_cgy_um", label: "Fator de Calibração (antes de ajuste)", unit: "cGy/UM", tolType: "info" },
+      { key: "calibration_factor_cgy_um", label: "Fator de Calibração (antes de ajuste)", unit: "cGy/UM", tolType: "info", decimals: 4 },
       {
         key: "beam_quality_deviation_pct",
         label: "Desvio da Qualidade do Feixe",
@@ -1057,6 +1064,7 @@
       },
       {
         key: "post_adjustment_calibration_factor_cgy_um",
+        decimals: 4,
         label: "Fator de Calibração pós-ajuste",
         unit: "cGy/UM",
         tolType: "info",
@@ -1069,6 +1077,7 @@
       },
       {
         key: "final_calibration_factor_cgy_um",
+        decimals: 4,
         label: "Fator de Calibração final da sessão",
         unit: "cGy/UM",
         tolType: "info",

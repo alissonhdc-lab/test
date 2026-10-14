@@ -144,6 +144,18 @@
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       return apiFetch(`/api/ativos/${assetId}/certificados`, { method: "POST", headers, body: fd });
     },
+    // ---- importação das planilhas de dosimetria (TRS-398) ----
+    previewDosimetryImport(files) {
+      const fd = new FormData();
+      files.forEach((f) => fd.append("files", f, f.name));
+      return apiFetch("/api/dosimetry/import/preview", { method: "POST", body: fd });
+    },
+    commitDosimetryImport(files, options) {
+      const fd = new FormData();
+      files.forEach((f) => fd.append("files", f, f.name));
+      fd.append("options", JSON.stringify(options));
+      return apiFetch("/api/dosimetry/import/commit", { method: "POST", body: fd });
+    },
     certificateFileUrl(assetId, certId) {
       return `${getBackendUrl()}/api/ativos/${assetId}/certificados/${certId}/arquivo`;
     },
