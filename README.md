@@ -26,8 +26,10 @@ um servidor Python (FastAPI) que guarda todos os dados em SQLite e roda o
   (Leeds TOR, QC-3, Las Vegas, Doselab kV/MV, SNC kV/MV), CatPhan (CT),
   Quart DVT (CBCT), Cheese Phantom/TomoCheese, DLG, ACR CT/MRI, análise
   de log de trajetória, e calibração TG-51/TRS-398 (fótons/elétrons).
-- **Teste manual/genérico** — para qualquer rotina sem módulo `pylinac`
-  correspondente, com métricas e tolerâncias definidas livremente.
+- **Checklist / teste manual** — monte seu próprio formulário de checagem
+  para qualquer rotina sem módulo `pylinac` correspondente: campos
+  numéricos (com unidade e nível de ação/tolerância), aprovado/reprovado,
+  texto livre ou lista suspensa, cada um podendo ser obrigatório.
 - **Dosimetria Absoluta Mensal (TRS-398)** — calculadora completa (Ktp,
   Ks, Kpol, kQ, dose em Zref/Zmax) a partir das leituras da sessão,
   substituindo a planilha usada anteriormente; ver seção "Dosimetria
