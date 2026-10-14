@@ -182,6 +182,43 @@ def _catphan_geometry_deviation(flat, params_dict=None):
     return flat
 
 
+def _catphan_thickness_deviation(flat, params_dict=None):
+    """postprocess: desvio entre a espessura de corte MEDIDA pelo CatPhan
+    (ctp404.measured_slice_thickness_mm) e a espessura NOMINAL configurada
+    na aquisição, lida direto do cabeçalho DICOM (tag 0018,0050 —
+    ver extract_dicom_nominal_slice_thickness_mm em analysis.py, que
+    preenche "dicom_nominal_slice_thickness_mm" antes do postprocess
+    rodar). Substitui o valor medido solto por essa diferença, pronta
+    para nível de ação/tolerância."""
+    measured = flat.pop("ctp404.measured_slice_thickness_mm", None)
+    nominal = flat.pop("dicom_nominal_slice_thickness_mm", None)
+    if measured is None or nominal is None:
+        return flat
+    flat["ctp404.thickness_deviation_mm"] = float(measured) - float(nominal)
+    return flat
+
+
+def _catphan_hu_uniformity_deviation(flat, params_dict=None):
+    """postprocess: 'Teste de Uniformidade de HU' — diferença entre o maior
+    e o menor valor médio de HU entre as 5 ROIs do módulo de uniformidade
+    (Top, Right, Bottom, Left, Center — ver pylinac.ct.CTP486.roi_settings,
+    igual em todos os modelos de CatPhan). Mais direto para o físico
+    configurar um nível de ação/tolerância em HU do que o índice
+    normalizado que o pylinac usa internamente (Elstrom et al). Descarta
+    os campos brutos por ROI (ctp486.rois.*) depois de extraído o resumo."""
+    prefix = "ctp486.rois."
+    values = []
+    for key in list(flat.keys()):
+        if not key.startswith(prefix):
+            continue
+        if key.endswith(".value") and flat[key] is not None:
+            values.append(float(flat[key]))
+        del flat[key]
+    if values:
+        flat["ctp486.hu_uniformity_deviation_hu"] = max(values) - min(values)
+    return flat
+
+
 def _crop_image_hook(instance, params_dict):
     """pre_analyze_hook: recorta as bordas da imagem antes de analisar —
     remove marcas de gráticula/artefatos de borda que podem atrapalhar a
@@ -494,23 +531,31 @@ MODULES = {
             "roi_size_factor": _float_cast,
         },
         "extract_dicom_angles": True,
+        # Lê a espessura de corte NOMINAL (tag DICOM 0018,0050) para comparar
+        # com a espessura MEDIDA pelo CatPhan — ver _catphan_thickness_deviation.
+        "extract_dicom_slice_thickness": True,
         "exclude_prefixes": [
-            # ctp404.hu_rois NÃO é excluído aqui — _catphan_hu_max_deviation
-            # precisa ver os campos brutos por inserto (ctp404.hu_rois.*)
-            # pra calcular o maior desvio de HU, e descarta esses campos
-            # brutos sozinho depois de usá-los (ver função abaixo).
-            "ctp486.rois",
+            # ctp404.hu_rois e ctp486.rois NÃO são excluídos aqui —
+            # _catphan_hu_max_deviation e _catphan_hu_uniformity_deviation
+            # precisam ver os campos brutos por inserto/ROI pra calcular os
+            # desvios de HU, e cada uma descarta seus campos brutos sozinha
+            # depois de usá-los (ver funções acima).
             "ctp528.roi_settings",
             "ctp528.mtf_lp_mm",
             "ctp515.roi_settings",
             "ctp515.roi_results",
         ],
-        # Figura com os módulos do fantoma lado a lado (HU uniformity, HU
-        # linearity, resolução espacial, baixo contraste, etc.) — o mesmo
-        # painel que plot_analyzed_image() do pylinac desenha, só que
-        # capturado como PNG para mostrar no resultado do teste.
-        "render_analyzed_image": True,
-        "postprocess": _compose(_catphan_hu_max_deviation, _catphan_geometry_deviation),
+        # Figura com os módulos do fantoma empilhados um abaixo do outro
+        # (ver render_catphan_stacked_image_png_b64, em analysis.py) — a
+        # mesma figura que plot_analyzed_image() do pylinac desenha, só que
+        # numa coluna em vez de grade 2x4, mais fácil de ler na tela.
+        "render_catphan_stacked_image": True,
+        "postprocess": _compose(
+            _catphan_hu_max_deviation,
+            _catphan_geometry_deviation,
+            _catphan_thickness_deviation,
+            _catphan_hu_uniformity_deviation,
+        ),
     },
     "quart": {
         "cls": pylinac.QuartDVT,

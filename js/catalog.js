@@ -596,7 +596,6 @@
         { key: "geometry_reference_mm", label: "Distância de referência entre nós (geometria)", type: "number", default: 50, unit: "mm", step: 0.1 },
       ],
       metrics: [
-        { key: "ctp404.hu_linearity_passed", label: "Linearidade de HU aprovada", unit: "", tolType: "bool" },
         {
           key: "ctp404.hu_max_deviation_hu",
           label: "Maior desvio de HU entre os insertos",
@@ -605,7 +604,6 @@
           actionPct: 20,
           tolerancePct: 40,
         },
-        { key: "ctp404.geometry_passed", label: "Precisão geométrica aprovada", unit: "", tolType: "bool" },
         {
           key: "ctp404.geometry_deviation_mm",
           label: "Desvio da precisão geométrica (medido vs. referência)",
@@ -614,11 +612,23 @@
           actionPct: 0.5,
           tolerancePct: 1.0,
         },
-        { key: "ctp404.thickness_passed", label: "Espessura de corte aprovada", unit: "", tolType: "bool" },
-        { key: "ctp404.measured_slice_thickness_mm", label: "Espessura de corte medida", unit: "mm", tolType: "info" },
+        {
+          key: "ctp404.thickness_deviation_mm",
+          label: "Espessura de corte: desvio (medida vs. nominal DICOM)",
+          unit: "mm",
+          tolType: "action",
+          actionPct: 0.1,
+          tolerancePct: 0.2,
+        },
         { key: "ctp404.low_contrast_visibility", label: "Visibilidade de baixo contraste", unit: "", tolType: "info" },
-        { key: "ctp486.passed", label: "Uniformidade aprovada", unit: "", tolType: "bool" },
-        { key: "ctp486.integral_non_uniformity", label: "Não-uniformidade integral", unit: "", tolType: "info" },
+        {
+          key: "ctp486.hu_uniformity_deviation_hu",
+          label: "Teste de Uniformidade de HU",
+          unit: "HU",
+          tolType: "action",
+          actionPct: 20,
+          tolerancePct: 40,
+        },
       ],
     },
     {

@@ -7,7 +7,9 @@ import base64
 import io
 import logging
 import re
+import tempfile
 import traceback
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -76,6 +78,36 @@ FIELD_NAME_TAG = (0x0008, 0x103E)  # SeriesDescription
 DICOM_STUDY_DATE_TAG = (0x0008, 0x0020)  # StudyDate, formato AAAAMMDD
 
 
+def _dicom_tag_source_path(saved_paths):
+    """Devolve um caminho que dá pra ler como arquivo DICOM de verdade, para
+    as funções que leem tags específicas (data do estudo, ângulos,
+    espessura de corte nominal etc.).
+
+    Em testes "series" (CT/CBCT), ``saved_paths[0]`` pode ser o próprio
+    .zip da série inteira em vez de um corte individual — nesse caso,
+    ``pydicom.dcmread`` no .zip não lança erro (por causa de
+    ``force=True``), mas interpreta os bytes do zip como um DICOM
+    sem sentido, então nenhuma tag real é encontrada (fica tudo
+    silenciosamente ausente). Extrai o primeiro membro do zip para um
+    arquivo temporário nesse caso; para qualquer outro caso (pasta com
+    cortes individuais), devolve o caminho normalmente."""
+    path = saved_paths[0]
+    if str(path).lower().endswith(".zip"):
+        try:
+            with zipfile.ZipFile(path) as zf:
+                names = [n for n in zf.namelist() if not n.endswith("/")]
+                if not names:
+                    return path
+                data = zf.read(names[0])
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dcm")
+            tmp.write(data)
+            tmp.close()
+            return Path(tmp.name)
+        except Exception:
+            return path
+    return path
+
+
 def extract_dicom_study_date(filepath):
     """Lê a tag DICOM (0008,0020) do primeiro arquivo do conjunto enviado e
     devolve no formato ISO (AAAA-MM-DD). Usada como a data do teste de
@@ -135,6 +167,24 @@ def extract_dicom_angles(filepath):
     except Exception:
         pass
     return out
+
+
+DICOM_SLICE_THICKNESS_TAG = (0x0018, 0x0050)  # SliceThickness, nominal (configurada na aquisição), em mm
+
+
+def extract_dicom_nominal_slice_thickness_mm(filepath):
+    """Lê a espessura de corte NOMINAL (a configurada na aquisição, tag
+    DICOM 0018,0050) do primeiro arquivo da série — usada para comparar
+    com a espessura de corte MEDIDA pelo CatPhan (ver
+    _catphan_thickness_deviation, em modules_config.py), em vez de mostrar
+    só o valor medido solto."""
+    try:
+        ds = pydicom.dcmread(str(filepath), stop_before_pixels=True, force=True)
+        if DICOM_SLICE_THICKNESS_TAG in ds:
+            return {"dicom_nominal_slice_thickness_mm": float(ds[DICOM_SLICE_THICKNESS_TAG].value)}
+    except Exception:
+        pass
+    return {}
 
 
 def extract_picket_spacing_details(results_dict, params_dict=None):
@@ -469,6 +519,53 @@ def render_analyzed_image_png_b64(instance, figsize=(11, 5.5), dpi=110, overlay_
             plt.close(fig)
 
 
+def render_catphan_stacked_image_png_b64(instance, dpi=110):
+    """Gera a mesma figura que CatPhanBase.plot_analyzed_image() do pylinac
+    desenha (HU uniformity, HU linearity, resolução espacial, baixo
+    contraste, vista lateral, etc.), mas com os painéis empilhados um
+    abaixo do outro (uma coluna) em vez da grade 2x4 padrão do pylinac —
+    assim cada painel fica grande o bastante pra ler na tela, com a página
+    rolando verticalmente em vez de amontoar tudo numa imagem pequena.
+    Chama exatamente os mesmos métodos que plot_analyzed_image() chama
+    internamente (mesma lógica condicional de quais módulos existem no
+    fantoma, via instance._has_module), só muda o layout da grade."""
+    import matplotlib.pyplot as plt
+    from pylinac.ct import CTP486, CTP515, CTP528
+
+    fig = None
+    try:
+        panels = []
+        if instance._has_module(CTP486):
+            panels.append(instance.ctp486.plot)
+        panels.append(instance.ctp404.plot)
+        panels.append(instance.ctp404.plot_linearity)
+        if instance._has_module(CTP528):
+            panels.append(instance.ctp528.mtf.plot)
+            panels.append(instance.ctp528.plot)
+        if instance._has_module(CTP515):
+            panels.append(instance.ctp515.plot)
+        panels.append(instance.plot_side_view)
+        if instance._has_module(CTP486):
+            panels.append(instance.ctp486.plot_profiles)
+
+        n = len(panels)
+        fig = plt.figure(figsize=(6.5, 4.3 * n), dpi=dpi)
+        for i, draw in enumerate(panels):
+            ax = plt.subplot2grid((n, 1), (i, 0))
+            draw(ax)
+        plt.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+        buf.seek(0)
+        return base64.b64encode(buf.read()).decode("ascii")
+    except Exception:
+        logger.exception("Falha ao renderizar a imagem analisada do CatPhan (empilhada)")
+        return None
+    finally:
+        if fig is not None:
+            plt.close(fig)
+
+
 def build_kwargs(config, params: dict, map_key="param_map", cast_key="param_cast"):
     param_map = config.get(map_key, {})
     param_cast = config.get(cast_key, {})
@@ -549,20 +646,28 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
         results_dict = results.model_dump() if hasattr(results, "model_dump") else results
         flat = flatten(results_dict, exclude_prefixes=config.get("exclude_prefixes", ()))
 
+        dicom_tag_path = _dicom_tag_source_path(saved_paths) if len(saved_paths) >= 1 else None
+
+        if config.get("extract_dicom_slice_thickness") and dicom_tag_path is not None:
+            # Precisa rodar ANTES do postprocess: é o postprocess que usa
+            # esse valor (comparar com a espessura medida pelo CatPhan) e
+            # descarta o campo bruto depois (ver _catphan_thickness_deviation).
+            flat.update(extract_dicom_nominal_slice_thickness_mm(dicom_tag_path))
+
         postprocess = config.get("postprocess")
         if postprocess:
             flat = postprocess(flat, params_dict)
 
-        if config.get("extract_dicom_angles") and len(saved_paths) >= 1:
-            flat.update(extract_dicom_angles(saved_paths[0]))
-        elif len(saved_paths) >= 1:
+        if config.get("extract_dicom_angles") and dicom_tag_path is not None:
+            flat.update(extract_dicom_angles(dicom_tag_path))
+        elif dicom_tag_path is not None:
             # Módulos que não usam extract_dicom_angles (hoje só o
             # Winston-Lutz, que extrai os dados por imagem separadamente)
             # ainda assim precisam de dicom_study_date — é a data usada como
             # data do teste de controle de qualidade em qualquer teste
             # baseado em imagem DICOM (ver runPylinacAnalysis no app.js e
             # watcher.py).
-            flat.update(extract_dicom_study_date(saved_paths[0]))
+            flat.update(extract_dicom_study_date(dicom_tag_path))
 
         if config.get("extract_wl_image_details"):
             flat["_wl_image_details"] = render_wl_images(instance, params_dict)
@@ -572,7 +677,9 @@ def run_analysis(module_id, params_dict, saved_paths, tmp_dir):
             if details:
                 flat["_picket_spacing_details"] = details
 
-        if config.get("render_analyzed_image"):
+        if config.get("render_catphan_stacked_image"):
+            flat["_analyzed_image_png_b64"] = render_catphan_stacked_image_png_b64(instance)
+        elif config.get("render_analyzed_image"):
             overlay_hook = _draw_isoalign_field_edge if config.get("draw_fwxm_field_edge") else None
             flat["_analyzed_image_png_b64"] = render_analyzed_image_png_b64(
                 instance, overlay_hook=overlay_hook, params_dict=params_dict
