@@ -104,20 +104,31 @@ Se você estiver no Windows, este é o caminho mais direto — usando o
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` e confirme com `S`
 > antes de tentar ativar de novo.
 
-> **Quer acessar o backend de outro computador da mesma rede** (ex.: o
-> notebook que roda o backend fica na sala de física, mas você quer abrir
-> o app de outro PC)? Descubra o IP da máquina que roda o backend com
-> `ipconfig` (campo "Endereço IPv4"), libere a porta 8420 no Firewall do
-> Windows se necessário, e em **Backup → Servidor (backend)** no app
-> aponte para `http://<esse-IP>:8420` em vez de `localhost`.
+> **Quer acessar de outros computadores da mesma rede (inclusive Wi-Fi)**,
+> sem precisar copiar o `index.html`/`css`/`js` em cada um? Descubra o IP da
+> máquina que roda o backend com `ipconfig` (campo "Endereço IPv4"), libere
+> a porta 8420 no Firewall do Windows se necessário, e pronto: o próprio
+> backend já serve o app em `http://<esse-IP>:8420` — não precisa de nada
+> instalado nos outros computadores além de um navegador. Se preferir abrir
+> o `index.html` localmente em algum PC (ex.: sem rede), aponte **Backup →
+> Servidor (backend)** para esse mesmo endereço.
 
 ## 3. Conectar o app a este backend
 
-1. Abra o app (`index.html`, local ou publicado no GitHub Pages).
+O jeito mais simples: acesse `http://localhost:8420` (ou `http://<IP-da-
+máquina>:8420` de outro computador da rede) — o próprio backend já serve o
+app nesse mesmo endereço, sem precisar copiar nenhum arquivo nem instalar
+nada além do navegador.
+
+Se preferir abrir o `index.html` localmente (duplo clique) ou publicado no
+GitHub Pages:
+
+1. Abra o app.
 2. Se ainda não houver usuários, a própria tela inicial já pede para criar
    o administrador — nesse ponto o app já está falando com o backend
    configurado em `http://localhost:8420` (padrão).
-3. Para trocar o endereço, vá em **Backup → Servidor (backend)**.
+3. Para trocar o endereço (ex.: backend rodando em outra máquina), vá em
+   **Backup → Servidor (backend)**.
 
 ## Testes com análise automática (upload manual)
 

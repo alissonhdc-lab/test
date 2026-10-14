@@ -41,6 +41,7 @@ from typing import List, Optional
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 import auth
 import db
@@ -694,3 +695,22 @@ async def dosimetry_calculate(
         return JSONResponse({"success": True, **result})
     except DosimetryError as e:
         raise HTTPException(status_code=422, detail=e.message)
+
+
+# ==================================================================
+# Frontend estático (index.html, css/, js/) — opcional: só entra em uso
+# se você apontar o navegador para a porta deste backend em vez de abrir
+# o index.html localmente. Serve-se explicitamente SÓ esses arquivos (não
+# a pasta raiz do repositório inteira, que contém este próprio backend/
+# com o rtqc.db e o código-fonte) para nenhum desses ficar acessível via
+# HTTP. Registrado por último para as rotas /api/... acima serem sempre
+# resolvidas primeiro.
+# ==================================================================
+_REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+app.mount("/css", StaticFiles(directory=os.path.join(_REPO_ROOT, "css")), name="frontend-css")
+app.mount("/js", StaticFiles(directory=os.path.join(_REPO_ROOT, "js")), name="frontend-js")
+
+
+@app.get("/")
+def frontend_index():
+    return FileResponse(os.path.join(_REPO_ROOT, "index.html"))
