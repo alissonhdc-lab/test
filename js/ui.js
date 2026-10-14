@@ -960,12 +960,11 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   }
 
   function visibilityFieldsHtml(users, visibleTo) {
-    // visibleTo é null/undefined (sem restrição, visível a todos) ou um
-    // array (restrita — mesmo vazio, o que significa "só administradores
-    // veem"). Por isso o teste é Array.isArray, não "length > 0": uma
-    // lista vazia ainda é uma restrição, só que sem ninguém marcado.
-    const restricted = Array.isArray(visibleTo);
-    const selected = restricted ? visibleTo : [];
+    // Por padrão (nenhum técnico marcado), a rotina não aparece pra
+    // nenhum técnico — só administradores veem até alguém ser marcado
+    // aqui explicitamente. Sem opção de "visível para todos": é sempre
+    // por marcação individual.
+    const selected = visibleTo || [];
     const tecnicos = (users || []).filter((u) => u.role === "tecnico");
     const usersHtml = tecnicos.length
       ? tecnicos
@@ -980,14 +979,8 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return `
     <fieldset class="visibility-fieldset">
       <legend>Visibilidade por usuário</legend>
-      <p class="muted small">Controla quem vê esta rotina no Painel e em Equipamentos. Administradores sempre veem todas as rotinas.</p>
-      <label class="radio-label">
-        <input type="radio" name="visibilityMode" value="all" ${!restricted ? "checked" : ""} data-action="toggle-visibility-mode" /> Visível para todos os técnicos
-      </label>
-      <label class="radio-label">
-        <input type="radio" name="visibilityMode" value="restricted" ${restricted ? "checked" : ""} data-action="toggle-visibility-mode" /> Visível só para os técnicos marcados abaixo
-      </label>
-      <div id="visibility-users-list" class="visibility-users-list ${restricted ? "" : "hidden"}">
+      <p class="muted small">Por padrão, nenhum técnico vê esta rotina no Painel nem em Equipamentos — só administradores. Marque abaixo quais técnicos podem vê-la.</p>
+      <div class="visibility-users-list">
         ${usersHtml}
       </div>
     </fieldset>`;

@@ -278,12 +278,10 @@ def _row_to_routine(row):
         "params": json.loads(row["params_json"] or "{}"),
         "metrics": json.loads(row["metrics_json"] or "[]"),
         "chartStyle": json.loads(row["chart_style_json"]) if row["chart_style_json"] else {},
-        # Lista de IDs de usuário (técnicos) que podem ver esta rotina no
-        # Painel e em Equipamentos. None/coluna vazia = "visível para
-        # todos" (sem restrição); [] = restrita, mas sem nenhum técnico
-        # marcado (visível só para administradores). É por isso que o
-        # distingue de None importa — não dá pra usar "or []" aqui.
-        "visibleTo": json.loads(row["visible_to_json"]) if row["visible_to_json"] is not None else None,
+        # Lista de IDs de usuário (técnicos) liberados a ver esta rotina no
+        # Painel e em Equipamentos. Vazia (padrão) = nenhum técnico vê —
+        # só administradores, até serem explicitamente adicionados aqui.
+        "visibleTo": json.loads(row["visible_to_json"]) if row["visible_to_json"] else [],
         "notes": row["notes"],
         "active": bool(row["active"]),
         "createdAt": row["created_at"],
@@ -688,10 +686,7 @@ def create_routine(data):
                 json.dumps(data.get("params") or {}),
                 json.dumps(data.get("metrics") or []),
                 json.dumps(data.get("chartStyle") or {}),
-                # Sem "or []" de propósito: None (sem a chave) precisa virar
-                # JSON "null" (sem restrição), distinto de uma lista vazia
-                # (restrita, mas sem ninguém marcado) — ver _row_to_routine.
-                json.dumps(data.get("visibleTo")),
+                json.dumps(data.get("visibleTo") or []),
                 data.get("notes"),
                 1 if data.get("active", True) else 0,
                 now_iso(),
@@ -709,7 +704,7 @@ def update_routine(rid, data):
         "params_json": json.dumps(data.get("params") or {}),
         "metrics_json": json.dumps(data.get("metrics") or []),
         "chart_style_json": json.dumps(data.get("chartStyle") or {}),
-        "visible_to_json": json.dumps(data.get("visibleTo")),
+        "visible_to_json": json.dumps(data.get("visibleTo") or []),
         "notes": data.get("notes"),
         "active": 1 if data.get("active", True) else 0,
     }
@@ -911,7 +906,7 @@ def import_backup(data):
                             json.dumps(r.get("params") or {}),
                             json.dumps(r.get("metrics") or []),
                             json.dumps(r.get("chartStyle") or {}),
-                            json.dumps(r.get("visibleTo")),
+                            json.dumps(r.get("visibleTo") or []),
                             r.get("notes"),
                             1 if r.get("active", True) else 0,
                             r.get("createdAt") or now_iso(),

@@ -334,17 +334,15 @@ def delete_medicao(aid: str, mid: str, _: dict = Depends(require_admin)):
 
 
 def _routine_visible_to(routine, user):
-    """Administrador sempre vê tudo (é quem configura a visibilidade). Para
-    técnico: visibleTo None (chave ausente/nunca restringida) é visível
-    para todos; uma LISTA (mesmo vazia) é restrita — só os IDs nela
-    conseguem ver (lista vazia = visível só para administradores)."""
+    """Administrador sempre vê tudo (é quem configura a visibilidade).
+    Técnico só vê a rotina se o ID dele estiver explicitamente na lista
+    visibleTo — o padrão (lista vazia/ausente) é NÃO mostrar a rotina
+    para nenhum técnico; o administrador precisa liberar uma a uma."""
     if not routine:
         return True
     if user.get("role") == "admin":
         return True
-    visible_to = routine.get("visibleTo")
-    if visible_to is None:
-        return True
+    visible_to = routine.get("visibleTo") or []
     return user["id"] in visible_to
 
 

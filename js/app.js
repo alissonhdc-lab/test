@@ -803,9 +803,6 @@
       const unitInput = row.querySelector(`input[name="mm_unit_${index}"]`);
       tolSpan.innerHTML = ui.toleranceInputsHtml("mm_" + index, e.target.value, {}, unitInput ? unitInput.value : "");
     }
-    if (e.target.matches('input[name="visibilityMode"]')) {
-      document.getElementById("visibility-users-list").classList.toggle("hidden", e.target.value !== "restricted");
-    }
     if (e.target.classList.contains("trend-metric-check")) {
       const parts = parseHash();
       const routineId = parts[3];
@@ -1082,13 +1079,9 @@
 
       const chartStyle = readChartStyleFromForm(fd);
 
-      // null = sem restrição (visível a todos); array (mesmo vazio) = só
-      // os IDs marcados conseguem ver — não pode ser [] por padrão aqui,
-      // senão "restrito mas ninguém marcado" ficaria igual a "sem restrição".
-      const visibleTo =
-        fd.get("visibilityMode") === "restricted"
-          ? Array.from(form.querySelectorAll('[name^="visibleTo__"]:checked')).map((el) => el.name.replace("visibleTo__", ""))
-          : null;
+      // Só os técnicos marcados aqui conseguem ver esta rotina — nenhum
+      // marcado (padrão) significa que só administradores a veem.
+      const visibleTo = Array.from(form.querySelectorAll('[name^="visibleTo__"]:checked')).map((el) => el.name.replace("visibleTo__", ""));
 
       const data = {
         equipmentId,
