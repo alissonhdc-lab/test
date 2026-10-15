@@ -542,6 +542,7 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 .readings-stats { grid-column: 2; }
 .dosimetry-context { margin-top: 10px; font-size: 13px; display: grid; gap: 4px; }
 .dosimetry-target { margin-top: 4px; padding: 8px 10px; border-radius: 8px; background: var(--warning-bg); }
+.ndw-info { margin: 12px 0 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
 
 @media (max-width: 860px) {
   .readings-head { display: none; }

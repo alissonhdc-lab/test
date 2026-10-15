@@ -99,7 +99,7 @@
         apiGet("/api/rotinas"),
         apiGet("/api/resultados"),
       ]);
-      return { users, equipments, routines, results };
+      return { users, equipments, routines: routines.map(global.RTQC.catalog.withEffectiveMetrics), results };
     },
 
     async replaceAll(data) {

@@ -939,14 +939,33 @@
       },
       {
         key: "expected_beam_quality",
-        label: "Qualidade do feixe esperada (fótons: TPR20,10 · elétrons: R50 em cm)",
+        label: "Qualidade do feixe de referência (fótons: TPR20,10 · elétrons: R50 em cm)",
         type: "number",
         default: "",
       },
-      { key: "kq_a", label: "kQ — coeficiente a (fótons, câmara cilíndrica)", type: "number", default: "" },
-      { key: "kq_b", label: "kQ — coeficiente b", type: "number", default: "" },
-      { key: "kq_c", label: "kQ — coeficiente c", type: "number", default: "" },
-      { key: "kq_d", label: "kQ — coeficiente d", type: "number", default: "" },
+      // Elétrons: conferência da qualidade por uma leitura em I50 (onde a
+      // leitura cai a 50% da leitura em Zmax). Vazio = I50 calculado do R50
+      // acima pela relação do TRS-398 (R50 = 1,029·I50 − 0,06 cm).
+      {
+        key: "i50_depth_cm",
+        label: "Profundidade da leitura de qualidade — I50 (vazio: calculada do R50)",
+        type: "number",
+        default: "",
+        unit: "cm",
+        beamType: "eletrons",
+      },
+      {
+        key: "i50_expected_pct",
+        label: "Leitura esperada nessa profundidade (% da leitura em Zmax)",
+        type: "number",
+        default: 50,
+        unit: "%",
+        beamType: "eletrons",
+      },
+      { key: "kq_a", label: "kQ — coeficiente a (câmara cilíndrica)", type: "number", default: "", beamType: "fotons" },
+      { key: "kq_b", label: "kQ — coeficiente b", type: "number", default: "", beamType: "fotons" },
+      { key: "kq_c", label: "kQ — coeficiente c", type: "number", default: "", beamType: "fotons" },
+      { key: "kq_d", label: "kQ — coeficiente d", type: "number", default: "", beamType: "fotons" },
       {
         key: "kq_fixed",
         label: "kQ fixo (elétrons: valor tabelado · fótons: opcional, substitui o polinômio — ex.: X2 = 1)",
@@ -979,7 +998,7 @@
     // "readings" = linha de até 6 réplicas (colunas 1–6 da planilha).
     // summaryKeys: o que aparece primeiro no resumo de cada resultado do
     // histórico da rotina.
-    summaryKeys: ["final_calibration_factor_cgy_um", "final_calibration_factor_deviation_pct", "tpr_20_10"],
+    summaryKeys: ["final_calibration_factor_cgy_um", "final_calibration_factor_deviation_pct", "tpr_20_10", "i50_reading_deviation_pct"],
     sessionFields: [
       { key: "pressure_mbar", label: "Pressão (P)", type: "number", unit: "mBar", required: true },
       {
@@ -999,13 +1018,17 @@
       // planilha), com média e Max/Min (%) calculados na hora.
       {
         key: "m1_readings",
-        label: "M1 = M− (tensão nominal, em Zref) — fótons: é também o D10",
+        label: "M1 = M− (tensão nominal, em Zref) — é também o D10",
         type: "readings",
         required: true,
+        beamType: "fotons",
       },
+      { key: "m1_readings", label: "M1 = M− (tensão nominal, em Zref)", type: "readings", required: true, beamType: "eletrons" },
       { key: "m_plus_readings", label: "M+ (polaridade invertida)", type: "readings", required: true },
       { key: "m2_readings", label: "M2 (meia tensão)", type: "readings", required: true },
       { key: "d20_readings", label: "D20 (20 cm de profundidade)", type: "readings", required: true, beamType: "fotons" },
+      // O rótulo ganha a profundidade I50 do feixe na tela da sessão.
+      { key: "i50_readings", label: "Leitura em I50", type: "readings", required: true, beamType: "eletrons" },
       { key: "adjustment_made", label: "Foi feito ajuste no acelerador nesta sessão?", type: "checkbox" },
       {
         key: "post_adjustment_readings",
@@ -1016,8 +1039,22 @@
     ],
     metrics: [
       { key: "ktp", label: "Ktp (correção pressão/temperatura)", unit: "", tolType: "info", decimals: 5 },
-      { key: "pdd_20_10", label: "PDD20,10 medido", unit: "", tolType: "info", decimals: 4 },
-      { key: "tpr_20_10", label: "TPR20,10 medido", unit: "", tolType: "info", decimals: 4 },
+      { key: "pdd_20_10", label: "PDD20,10 medido", unit: "", tolType: "info", decimals: 4, beamType: "fotons" },
+      { key: "tpr_20_10", label: "TPR20,10 medido", unit: "", tolType: "info", decimals: 4, beamType: "fotons" },
+      { key: "i50_depth_cm", label: "Profundidade I50 usada", unit: "cm", tolType: "info", decimals: 2, beamType: "eletrons", plottable: false },
+      { key: "zmax_reading_nc", label: "Leitura equivalente em Zmax (Zref ÷ PDP)", unit: "nC", tolType: "info", decimals: 3, beamType: "eletrons" },
+      { key: "i50_expected_reading_nc", label: "Leitura esperada em I50 (50% da leitura em Zmax)", unit: "nC", tolType: "info", decimals: 3, beamType: "eletrons" },
+      { key: "i50_avg_nc", label: "Leitura medida em I50", unit: "nC", tolType: "info", decimals: 3, beamType: "eletrons" },
+      {
+        key: "i50_reading_deviation_pct",
+        label: "Desvio da leitura em I50 (medida vs. esperada)",
+        unit: "%",
+        tolType: "range",
+        tolLow: -2,
+        tolHigh: 2,
+        beamType: "eletrons",
+      },
+      { key: "ndw", label: "ND,w usado no cálculo", unit: "cGy/nC", tolType: "info", decimals: 4 },
       { key: "kq", label: "kQ (fator de correção da qualidade do feixe)", unit: "", tolType: "info", decimals: 4 },
       { key: "pressure_mbar", label: "Pressão", unit: "mBar", tolType: "info", decimals: 1 },
       { key: "temperature_c", label: "Temperatura", unit: "°C", tolType: "info", decimals: 1 },
@@ -1050,11 +1087,12 @@
       { key: "calibration_factor_cgy_um", label: "Fator de Calibração (antes de ajuste)", unit: "cGy/UM", tolType: "info", decimals: 4 },
       {
         key: "beam_quality_deviation_pct",
-        label: "Desvio da Qualidade do Feixe",
+        label: "Desvio da Qualidade do Feixe (TPR20,10 vs. referência)",
         unit: "%",
         tolType: "range",
         tolLow: -2,
         tolHigh: 2,
+        beamType: "fotons",
       },
       {
         key: "post_adjustment_dose_zmax_cgy",
@@ -1092,6 +1130,53 @@
       },
     ],
   };
+
+  // Fótons e elétrons não medem as mesmas grandezas (PDD/TPR20,10 × leitura
+  // em I50): parâmetros, leituras e métricas com beamType só valem para
+  // aquele tipo de feixe.
+  function trs398BeamType(params) {
+    return (params && params.beam_type) || "fotons";
+  }
+  DOSIMETRY_TRS398_TYPE.metricsForParams = (params) =>
+    DOSIMETRY_TRS398_TYPE.metrics.filter((m) => !m.beamType || m.beamType === trs398BeamType(params));
+
+  // TRS-398 (elétrons): R50 = 1,029·I50 − 0,06 cm (I50 ≤ 10 cm) ou
+  // 1,059·I50 − 0,37 cm, invertida — mesma conta de backend/dosimetry_trs398.py.
+  function i50FromR50(r50) {
+    const i50 = (r50 + 0.06) / 1.029;
+    return i50 <= 10 ? i50 : (r50 + 0.37) / 1.059;
+  }
+
+  // Profundidade da leitura de qualidade de um feixe de elétrons: a
+  // configurada na rotina ou, se vazia, I50 calculado do R50.
+  function trs398I50DepthCm(params) {
+    params = params || {};
+    const configured = parseFloat(params.i50_depth_cm);
+    if (Number.isFinite(configured)) return configured;
+    const r50 = parseFloat(params.expected_beam_quality);
+    return Number.isFinite(r50) ? i50FromR50(r50) : null;
+  }
+
+  // Rotinas guardam uma cópia das métricas de quando foram salvas. Na
+  // TRS-398 o catálogo decide QUAIS métricas existem (conforme o tipo de
+  // feixe) e a rotina só contribui com as tolerâncias escolhidas — assim
+  // rotinas antigas ganham as métricas novas (ex.: leitura em I50) com a
+  // tolerância padrão, e perdem as que não valem para o seu feixe.
+  const TOLERANCE_FIELDS = ["tolType", "tol", "tolLow", "tolHigh", "actionPct", "tolerancePct", "nominal"];
+  function withEffectiveMetrics(routine) {
+    if (routine.testType !== "trs398") return routine;
+    const saved = {};
+    (routine.metrics || []).forEach((m) => (saved[m.key] = m));
+    const metrics = DOSIMETRY_TRS398_TYPE.metricsForParams(routine.params).map((m) => {
+      const entry = { key: m.key, label: m.label, unit: m.unit };
+      TOLERANCE_FIELDS.forEach((f) => {
+        const source = saved[m.key] && saved[m.key][f] !== undefined ? saved[m.key] : m;
+        if (source[f] !== undefined) entry[f] = source[f];
+      });
+      return entry;
+    });
+    return Object.assign({}, routine, { metrics });
+  }
 
   // ------------------------------------------------------------------
   // Teste Diário (Sun Nuclear Daily QA3 / Atlas) — importação automática.
@@ -1252,5 +1337,8 @@
     getModuleById,
     getModuleMetrics,
     groupModules,
+    trs398BeamType,
+    trs398I50DepthCm,
+    withEffectiveMetrics,
   };
 })(window);

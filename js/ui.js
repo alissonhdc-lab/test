@@ -18,6 +18,8 @@
     getModuleById,
     getModuleMetrics,
     groupModules,
+    trs398BeamType,
+    trs398I50DepthCm,
   } = global.RTQC.catalog;
 
   // Resolve o "módulo" (definição de params/metrics) de uma rotina,
@@ -772,59 +774,68 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     sncTemplates = sncTemplates || [];
     return module.params
       .map((p) => {
-        const val = params[p.key] !== undefined ? params[p.key] : p.default;
-        if (p.type === "snc-template-select") {
-          const opts = sncTemplates
-            .map(
-              (t) =>
-                `<option value="${esc(t.setKey)}" ${String(val) === String(t.setKey) ? "selected" : ""}>${esc(t.templateName)} (${esc(t.beamType)}${t.beamEnergy ? " " + esc(t.beamEnergy) : ""} · ${esc(t.machineName)}/${esc(t.roomName)})</option>`
-            )
-            .join("");
-          return `<label>${esc(p.label)}
-            <select name="param__${p.key}" ${p.required ? 'data-cond-required="true"' : ""}>
-              <option value="">— selecione —</option>
-              ${opts}
-            </select>
-            ${
-              sncTemplates.length === 0
-                ? `<span class="muted small">Nenhum modelo encontrado — confira o caminho do Sncdata.fdb em <a href="#/backup">Backup</a>.</span>`
-                : ""
-            }
-          </label>`;
-        }
-        if (p.type === "asset-select") {
-          const types = Array.isArray(p.assetType) ? p.assetType : [p.assetType];
-          const options = types.reduce((acc, t) => acc.concat(assetsByType[t] || []), []);
-          const opts = options
-            .map(
-              (a) =>
-                `<option value="${esc(a.id)}" ${val === a.id ? "selected" : ""}>${esc(a.name)}${a.model ? " — " + esc(a.model) : ""}</option>`
-            )
-            .join("");
-          return `<label>${esc(p.label)}
-            <select name="param__${p.key}" ${p.required ? 'data-cond-required="true"' : ""}>
-              <option value="">— selecione —</option>
-              ${opts}
-            </select>
-            ${options.length === 0 ? `<span class="muted small">Nenhum ativo desse tipo cadastrado ainda. Vá em <a href="#/ativos">Ativos</a>.</span>` : ""}
-          </label>`;
-        }
-        if (p.type === "select") {
-          const opts = p.options
-            .map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc((p.optionLabels && p.optionLabels[o]) || o)}</option>`)
-            .join("");
-          return `<label>${esc(p.label)}<select name="param__${p.key}">${opts}</select></label>`;
-        }
-        if (p.type === "checkbox") {
-          return `<label class="checkbox-label"><input type="checkbox" name="param__${p.key}" ${val ? "checked" : ""} /> ${esc(p.label)}</label>`;
-        }
-        if (p.type === "number") {
-          return `<label>${esc(p.label)} ${p.unit ? `<span class="unit-tag">${esc(p.unit)}</span>` : ""}
-            <input type="number" step="${p.step || "any"}" name="param__${p.key}" value="${esc(val)}" /></label>`;
-        }
-        return `<label>${esc(p.label)}<input type="text" name="param__${p.key}" value="${esc(val)}" /></label>`;
+        const html = paramFieldHtml(p, params, assetsByType, sncTemplates);
+        // Parâmetro só de fótons ou só de elétrons (TRS-398): escondido
+        // quando o tipo de feixe escolhido é o outro.
+        if (!p.beamType) return html;
+        const hidden = p.beamType !== trs398BeamType(params);
+        return `<div class="${hidden ? "hidden" : ""}" data-beam-type="${esc(p.beamType)}">${html}</div>`;
       })
       .join("");
+  }
+
+  function paramFieldHtml(p, params, assetsByType, sncTemplates) {
+    const val = params[p.key] !== undefined ? params[p.key] : p.default;
+    if (p.type === "snc-template-select") {
+      const opts = sncTemplates
+        .map(
+          (t) =>
+            `<option value="${esc(t.setKey)}" ${String(val) === String(t.setKey) ? "selected" : ""}>${esc(t.templateName)} (${esc(t.beamType)}${t.beamEnergy ? " " + esc(t.beamEnergy) : ""} · ${esc(t.machineName)}/${esc(t.roomName)})</option>`
+        )
+        .join("");
+      return `<label>${esc(p.label)}
+        <select name="param__${p.key}" ${p.required ? 'data-cond-required="true"' : ""}>
+          <option value="">— selecione —</option>
+          ${opts}
+        </select>
+        ${
+          sncTemplates.length === 0
+            ? `<span class="muted small">Nenhum modelo encontrado — confira o caminho do Sncdata.fdb em <a href="#/backup">Backup</a>.</span>`
+            : ""
+        }
+      </label>`;
+    }
+    if (p.type === "asset-select") {
+      const types = Array.isArray(p.assetType) ? p.assetType : [p.assetType];
+      const options = types.reduce((acc, t) => acc.concat(assetsByType[t] || []), []);
+      const opts = options
+        .map(
+          (a) =>
+            `<option value="${esc(a.id)}" ${val === a.id ? "selected" : ""}>${esc(a.name)}${a.model ? " — " + esc(a.model) : ""}</option>`
+        )
+        .join("");
+      return `<label>${esc(p.label)}
+        <select name="param__${p.key}" ${p.required ? 'data-cond-required="true"' : ""}>
+          <option value="">— selecione —</option>
+          ${opts}
+        </select>
+        ${options.length === 0 ? `<span class="muted small">Nenhum ativo desse tipo cadastrado ainda. Vá em <a href="#/ativos">Ativos</a>.</span>` : ""}
+      </label>`;
+    }
+    if (p.type === "select") {
+      const opts = p.options
+        .map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc((p.optionLabels && p.optionLabels[o]) || o)}</option>`)
+        .join("");
+      return `<label>${esc(p.label)}<select name="param__${p.key}">${opts}</select></label>`;
+    }
+    if (p.type === "checkbox") {
+      return `<label class="checkbox-label"><input type="checkbox" name="param__${p.key}" ${val ? "checked" : ""} /> ${esc(p.label)}</label>`;
+    }
+    if (p.type === "number") {
+      return `<label>${esc(p.label)} ${p.unit ? `<span class="unit-tag">${esc(p.unit)}</span>` : ""}
+        <input type="number" step="${p.step || "any"}" name="param__${p.key}" value="${esc(val)}" /></label>`;
+    }
+    return `<label>${esc(p.label)}<input type="text" name="param__${p.key}" value="${esc(val)}" /></label>`;
   }
 
   // Tipos de tolerância que fazem sentido para uma métrica numérica (nunca
@@ -1079,8 +1090,9 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         <h4>Configuração do feixe e do conjunto dosimétrico</h4>
         <p class="muted small">Preenchida uma vez (equivalente às planilhas de referência) — o físico só lança as leituras a cada dosimetria mensal.</p>
         <div class="params-grid">${moduleParamsFormHtml(DOSIMETRY_TRS398_TYPE, r.params, assetsByType)}</div>
+        <div id="trs398-ndw-info" class="dosimetry-context ndw-info hidden"></div>
         <h4 class="mt">Métricas e tolerâncias de aprovação</h4>
-        <div>${moduleMetricsPreviewHtml(DOSIMETRY_TRS398_TYPE, r.metrics)}</div>
+        <div id="trs398-metrics-container">${moduleMetricsPreviewHtml(DOSIMETRY_TRS398_TYPE, r.metrics, r.params)}</div>
       </div>
 
       <div id="snc-section" class="${testType === "snc_daily" ? "" : "hidden"}">
@@ -1486,13 +1498,35 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return `média ${fixDecimals(avg, 4)} · Max/Min ${spread === null ? "—" : fixDecimals(spread, 2) + "%"}`;
   }
 
+  function i50ReadingLabel(routine, depth) {
+    const params = (routine && routine.params) || {};
+    const pct = params.i50_expected_pct !== undefined && params.i50_expected_pct !== "" ? params.i50_expected_pct : 50;
+    const where = depth !== null ? `I50 = ${fixDecimals(depth, 2)} cm` : "I50";
+    const r50 = params.expected_beam_quality !== undefined && params.expected_beam_quality !== "" ? ` · R50 = ${esc(params.expected_beam_quality)} cm` : "";
+    return `Leitura em ${where} (esperado: ${pct}% da leitura em Zmax${r50})`;
+  }
+
+  // ND,w vigente da câmara escolhida na rotina — o mesmo que o cálculo vai
+  // usar (última medição com ND,w no histórico da câmara em Ativos).
+  function trs398NdwInfoHtml(chamber, measurement) {
+    if (!chamber) return `<div class="muted">Escolha a câmara para ver o N<sub>D,w</sub> que será usado no cálculo.</div>`;
+    if (!measurement) {
+      return `<div><b>N<sub>D,w</sub>:</b> <span class="badge badge-danger">nenhum cadastrado para ${esc(chamber.name)}</span> — lance a calibração em <a href="#/ativos">Ativos</a> antes da dosimetria.</div>`;
+    }
+    return `<div><b>N<sub>D,w</sub> considerado:</b> ${fixDecimals(measurement.ndw, 4)} cGy/nC${
+      measurement.ndwUncertaintyPct ? ` ± ${esc(measurement.ndwUncertaintyPct)}% (k=2)` : ""
+    } · desde ${fmtDate(measurement.measuredAt)}${measurement.notes ? ` <span class="muted">(${esc(measurement.notes)})</span>` : ""}</div>
+    <div class="muted small">Vem do histórico da câmara ${esc(chamber.name)} em Ativos — para mudar, lance a nova calibração lá.</div>`;
+  }
+
   function trs398SessionFormHtml(assetsByType, routine) {
     assetsByType = assetsByType || {};
     const beamType = ((routine && routine.params) || {}).beam_type || "fotons";
     const sessionFields = DOSIMETRY_TRS398_TYPE.sessionFields.filter((f) => !f.beamType || f.beamType === beamType);
+    const i50Depth = trs398I50DepthCm((routine && routine.params) || {});
     const readingRows = sessionFields
       .filter((f) => f.type === "readings")
-      .map((f) => readingsRowHtml(f))
+      .map((f) => readingsRowHtml(f.key === "i50_readings" ? Object.assign({}, f, { label: i50ReadingLabel(routine, i50Depth) }) : f))
       .join("");
     const fields = sessionFields
       .filter((f) => f.type !== "readings")
@@ -2006,7 +2040,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
         }</div>`
       );
       lines.push(
-        `<div><b>N<sub>D,w</sub>:</b> ${n(context.ndw, 4)} cGy/nC${
+        `<div><b>N<sub>D,w</sub> considerado:</b> ${n(context.ndw, 4)} cGy/nC${
           context.ndw_uncertainty_pct ? ` ± ${esc(context.ndw_uncertainty_pct)}% (k=2)` : ""
         }${context.ndw_date ? ` · desde ${fmtDate(context.ndw_date)}` : ""}${context.ndw_notes ? ` <span class="muted">(${esc(context.ndw_notes)})</span>` : ""}</div>`
       );
@@ -2020,6 +2054,18 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
       );
     } else if (context.chamber) {
       lines.push(`<div class="muted">Sem Ks/Kpol de referência desta câmara para este feixe em Ativos — esta sessão passa a ser a referência ao salvar.</div>`);
+    }
+    if (metrics.i50_reading_deviation_pct !== undefined) {
+      lines.push(
+        `<div><b>Qualidade do feixe (I50${metrics.i50_depth_cm !== undefined ? " = " + n(metrics.i50_depth_cm, 2) + " cm" : ""}):</b> medida ${n(
+          metrics.i50_avg_nc,
+          3
+        )} nC · esperada ${n(metrics.i50_expected_reading_nc, 3)} nC <span class="muted">(da leitura em Zmax: ${n(metrics.zmax_reading_nc, 3)} nC)</span> · dif. ${pct(
+          metrics.i50_reading_deviation_pct
+        )}</div>`
+      );
+    } else if (metrics.tpr_20_10 !== undefined) {
+      lines.push(`<div><b>Qualidade do feixe:</b> TPR<sub>20,10</sub> ${n(metrics.tpr_20_10, 4)} · dif. ${pct(metrics.beam_quality_deviation_pct)}</div>`);
     }
     if (metrics.adjustment_target_reading_nc !== undefined) {
       lines.push(
@@ -2133,6 +2179,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     fixDecimals,
     readingsStats,
     dosimetryContextHtml,
+    trs398NdwInfoHtml,
     dosimetryImportFormHtml,
     dosimetryImportPreviewHtml,
     dosimetryImportResultHtml,

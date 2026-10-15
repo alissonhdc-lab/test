@@ -876,6 +876,22 @@
         document.getElementById("module-metrics-container").innerHTML = ui.moduleMetricsPreviewHtml(module, current, readModuleParams(form, module));
       }
     }
+    // Dosimetria TRS-398: trocar fótons/elétrons troca os parâmetros e as
+    // métricas que valem para o feixe; trocar a câmara mostra o ND,w dela.
+    if (e.target.name === "param__beam_type" && e.target.closest("#trs398-section")) {
+      const form = e.target.form;
+      const module = catalog.DOSIMETRY_TRS398_TYPE;
+      form
+        .querySelectorAll("#trs398-section [data-beam-type]")
+        .forEach((el) => el.classList.toggle("hidden", el.dataset.beamType !== e.target.value));
+      const current = readModuleMetrics(new FormData(form), module.metrics).filter((m) =>
+        form.querySelector(`#trs398-metrics-container [name="metric__${m.key}__tolType"]`)
+      );
+      document.getElementById("trs398-metrics-container").innerHTML = ui.moduleMetricsPreviewHtml(module, current, readModuleParams(form, module));
+    }
+    if (e.target.name === "param__chamber_asset_id" && e.target.closest("#trs398-section")) {
+      refreshTrs398NdwInfo(e.target.form);
+    }
     if (e.target.dataset.action === "manual-metric-toltype") {
       const row = e.target.closest(".manual-metric-row");
       const index = row.dataset.manualRow;
@@ -1004,6 +1020,31 @@
   // ------------------------------------------------------------------
   // Modais: Rotina
   // ------------------------------------------------------------------
+
+  // Mostra no formulário da rotina TRS-398 o ND,w que o cálculo vai usar:
+  // a última calibração com ND,w no histórico da câmara escolhida (a
+  // lista vem do backend já da mais recente para a mais antiga).
+  async function refreshTrs398NdwInfo(form) {
+    const box = document.getElementById("trs398-ndw-info");
+    const select = form && form.querySelector("#trs398-section [name='param__chamber_asset_id']");
+    if (!box || !select) return;
+    box.classList.remove("hidden");
+    const chamberId = select.value;
+    const chamber = (currentAssetsByType.ionization_chamber || []).find((a) => a.id === chamberId);
+    if (!chamber) {
+      box.innerHTML = ui.trs398NdwInfoHtml(null, null);
+      return;
+    }
+    try {
+      const measurements = await store.listAssetMeasurements(chamberId);
+      if (select.value !== chamberId) return; // câmara trocada enquanto carregava
+      const latest = measurements.find((m) => m.ndw !== null && m.ndw !== undefined) || null;
+      box.innerHTML = ui.trs398NdwInfoHtml(chamber, latest);
+    } catch (err) {
+      box.innerHTML = `<div class="muted">Não foi possível carregar o N<sub>D,w</sub> da câmara: ${ui.esc(err.message)}</div>`;
+    }
+  }
+
   async function openRoutineModal(equipmentId, routine) {
     const db = await store.get();
     const equipment = db.equipments.find((e) => e.id === equipmentId);
@@ -1028,6 +1069,7 @@
     });
     syncConditionalRequired();
     const form = document.getElementById("routine-form");
+    refreshTrs398NdwInfo(form);
 
     // Pré-visualização da aparência do gráfico: o modal cobre a tela
     // inteira, então sem isso o técnico muda os campos e não vê nenhum
@@ -1083,20 +1125,9 @@
           const raw = fd.get("param__" + p.key);
           params[p.key] = p.type === "checkbox" ? form.querySelector(`[name="param__${p.key}"]`).checked : raw;
         });
-        metrics = module.metrics.map((m) => {
-          const tolType = fd.get(`metric__${m.key}__tolType`) || m.tolType;
-          const entry = { key: m.key, label: m.label, unit: m.unit, tolType };
-          if (tolType === "max" || tolType === "min") entry.tol = parseFloat(fd.get(`metric__${m.key}__tol`));
-          if (tolType === "range") {
-            entry.tolLow = parseFloat(fd.get(`metric__${m.key}__tolLow`));
-            entry.tolHigh = parseFloat(fd.get(`metric__${m.key}__tolHigh`));
-          }
-          if (tolType === "action") {
-            entry.actionPct = parseFloat(fd.get(`metric__${m.key}__actionPct`));
-            entry.tolerancePct = parseFloat(fd.get(`metric__${m.key}__tolerancePct`));
-          }
-          return entry;
-        });
+        // Só as métricas do tipo de feixe escolhido (fótons: PDD/TPR20,10;
+        // elétrons: leitura em I50).
+        metrics = readModuleMetrics(fd, catalog.getModuleMetrics(module, params));
       } else if (testType === "snc_daily") {
         const module = catalog.DAILY_SNC_TYPE;
         module.params.forEach((p) => {

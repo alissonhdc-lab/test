@@ -20,8 +20,10 @@ physics data" e seção 7 "Determination of absorbed dose to water"):
    fixo/de referência.
 2. Fótons: PDD20,10 = D20/D10, depois TPR20,10 = 1,2661×PDD20,10 − 0,0595
    (fórmula empírica do TRS-398, eq. 3.3, para converter PDD→TPR sem medir
-   TPR diretamente). Elétrons: qualidade do feixe (R50) é um valor de
-   referência já determinado na comissão do feixe, não remedido todo mês.
+   TPR diretamente). Elétrons: não há PDD/TPR20,10 — a qualidade é
+   conferida por uma leitura na profundidade I50 (onde a leitura da câmara
+   cai a 50% da leitura em Zmax), comparada com o esperado: 50% da leitura
+   em Zmax, que vem da leitura em Zref dividida pela PDP(Zref).
 3. kQ: fótons, polinômio de Andreo (a+b×TPR+c×TPR²+d×TPR³, coeficientes
    por modelo de câmara cilíndrica, TRS-398 tabela 14); elétrons, valor
    tabelado fixo (câmaras de placas paralelas — a planilha usa uma
@@ -88,6 +90,16 @@ def _tpr_20_10_from_pdd(pdd2010):
     return 1.2661 * pdd2010 - 0.0595
 
 
+def _i50_from_r50(r50_cm):
+    """TRS-398 (elétrons): R50 = 1,029·I50 − 0,06 cm (I50 ≤ 10 cm) ou
+    R50 = 1,059·I50 − 0,37 cm (I50 > 10 cm), invertida. R50 é a
+    profundidade de 50% da DOSE; I50, a de 50% da LEITURA (ionização) — não
+    coincidem porque a razão de poder de freamento água/ar cresce com a
+    profundidade, e na queda do feixe 1 mm já muda a leitura em vários %."""
+    i50 = (r50_cm + 0.06) / 1.029
+    return i50 if i50 <= 10 else (r50_cm + 0.37) / 1.059
+
+
 def _kq_photon(tpr2010, a, b, c, d):
     return a + b * tpr2010 + c * tpr2010**2 + d * tpr2010**3
 
@@ -143,6 +155,7 @@ def calculate(params, session):
     m_plus_readings = session.get("m_plus_readings") or []
     m2_readings = session.get("m2_readings") or []
     d20_readings = session.get("d20_readings") or []
+    i50_readings = session.get("i50_readings") or []
 
     m1_avg, m1_spread = _avg_maxmin(m1_readings)
     if m1_avg is None:
@@ -150,6 +163,7 @@ def calculate(params, session):
     mplus_avg, mplus_spread = _avg_maxmin(m_plus_readings)
     m2_avg, m2_spread = _avg_maxmin(m2_readings)
     d20_avg, d20_spread = _avg_maxmin(d20_readings)
+    i50_avg, i50_spread = _avg_maxmin(i50_readings)
 
     flat = {
         "m1_avg_nc": m1_avg,
@@ -186,10 +200,10 @@ def calculate(params, session):
         # histórico já registrado pela física — ver validação numérica
         # completa no commit desta funcionalidade.
         beam_quality_measured = tpr2010
-    else:
-        # Elétrons: R50 é valor de referência (comissionamento), não
-        # remedido na dosimetria mensal — usado só para conferência.
-        beam_quality_measured = None
+    elif i50_avg is None:
+        raise DosimetryError(
+            "Elétrons: é preciso lançar as leituras em I50 (profundidade de 50% da leitura em Zmax) para conferir a qualidade do feixe."
+        )
 
     # 2 - kQ
     kq_fixed_photon = _optional_float(params.get("kq_fixed")) if is_photon else None
@@ -253,6 +267,9 @@ def calculate(params, session):
     except (KeyError, TypeError, ValueError):
         raise DosimetryError("ND,w, PDP de referência e UM nominal precisam estar configurados na rotina.")
 
+    # ND,w também vai para o resultado: fica registrado com qual
+    # calibração da câmara cada mês foi calculado.
+    flat["ndw"] = ndw
     dose_zref = _dose_water_zref(m1_avg, ktp_val, ks_val, kpol_val, ndw, kq_val)
     flat["dose_zref_cgy"] = dose_zref
     dose_zmax = _dose_at_zmax(dose_zref, pdp_percent)
@@ -280,6 +297,25 @@ def calculate(params, session):
             expected_quality = None
         if expected_quality is not None:
             flat["beam_quality_deviation_pct"] = (beam_quality_measured / expected_quality - 1) * 100
+    else:
+        # Elétrons: leitura em Zmax a partir da leitura em Zref (mesma PDP
+        # usada para levar a dose de Zref a Zmax — em elétrons Zref fica
+        # junto do máximo, então a diferença entre razão de dose e de
+        # leitura ali é desprezível); o esperado em I50 é 50% dela.
+        r50 = _optional_float(params.get("expected_beam_quality"))
+        depth = _optional_float(params.get("i50_depth_cm"))
+        if depth is None and r50 is not None:
+            depth = _i50_from_r50(r50)
+        expected_pct = _optional_float(params.get("i50_expected_pct")) or 50.0
+        zmax_reading = m1_avg / (pdp_percent / 100.0)
+        i50_expected = expected_pct / 100.0 * zmax_reading
+        if depth is not None:
+            flat["i50_depth_cm"] = depth
+        flat["zmax_reading_nc"] = zmax_reading
+        flat["i50_expected_reading_nc"] = i50_expected
+        flat["i50_avg_nc"] = i50_avg
+        flat["i50_spread_pct"] = i50_spread
+        flat["i50_reading_deviation_pct"] = (i50_avg / i50_expected - 1) * 100
 
     # 8 - Ajuste (opcional): mesmas contas, com a média das leituras pós-ajuste
     adjustment_made = bool(session.get("adjustment_made"))
