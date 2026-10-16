@@ -305,7 +305,8 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 .btn-danger:hover { background: #b91c1c; }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--sidebar-text); }
 .sidebar .btn-ghost:hover { background: rgba(255,255,255,0.08); color: #fff; }
-.btn-block { width: 100%; justify-content: center; }
+.btn-block { width: 100%; justify-content: center; text-align: center; }
+a.btn:hover { text-decoration: none; }
 .btn-small { padding: 4px 10px; font-size: 11.5px; }
 .filter-clear-btn { background: none; border: none; padding: 0; color: var(--primary); font-size: 12.5px; font-weight: 600; cursor: pointer; text-decoration: underline; }
 .icon-btn {

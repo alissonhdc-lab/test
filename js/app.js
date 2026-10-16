@@ -1710,7 +1710,13 @@
   // ------------------------------------------------------------------
   // Init
   // ------------------------------------------------------------------
+  // Antes da primeira tela: descobre se a página veio do próprio backend —
+  // aí ele é o endereço padrão (ver store.detectSameOriginBackend).
+  async function start() {
+    await store.detectSameOriginBackend();
+    render();
+  }
   window.addEventListener("hashchange", render);
-  window.addEventListener("DOMContentLoaded", render);
-  if (document.readyState !== "loading") render();
+  if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", start);
+  else start();
 })(window);

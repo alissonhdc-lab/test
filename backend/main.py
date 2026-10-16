@@ -843,3 +843,17 @@ app.mount("/assets", StaticFiles(directory=os.path.join(_REPO_ROOT, "assets")), 
 @app.get("/")
 def frontend_index():
     return FileResponse(os.path.join(_REPO_ROOT, "index.html"))
+
+
+# Ícones que navegadores e o iOS pedem em caminhos fixos da raiz (além dos
+# <link> do index.html) — sem isso, 404 no log a cada acesso.
+def _icon_route(file_name):
+    return lambda: FileResponse(os.path.join(_REPO_ROOT, "assets", "img", file_name))
+
+
+for _path, _file in {
+    "favicon.ico": "favicon-32.png",
+    "apple-touch-icon.png": "apple-touch-icon.png",
+    "apple-touch-icon-precomposed.png": "apple-touch-icon.png",
+}.items():
+    app.add_api_route(f"/{_path}", _icon_route(_file), methods=["GET"], include_in_schema=False)

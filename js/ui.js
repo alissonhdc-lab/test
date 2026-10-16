@@ -166,6 +166,25 @@
   }
 
   function renderBackendError(message, backendUrl) {
+    // https:// (ex.: GitHub Pages) → servidor http:// da rede: o navegador
+    // bloqueia, mas o próprio backend serve o app — o caminho é abrir lá.
+    if (global.RTQC.store.isBlockedAsMixedContent(backendUrl)) {
+      return `
+    <div class="auth-screen">
+      <div class="auth-card">
+        ${authLogoHtml()}
+        <p class="form-error">Este endereço (${esc(location.origin)}) não consegue falar com o servidor ${esc(backendUrl)}.</p>
+        <p class="muted small">Páginas abertas por <b>https://</b> não podem chamar um servidor <b>http://</b> da rede local — o navegador bloqueia antes de a chamada sair. O próprio servidor já tem o AutomatiCQ: abra por ele (em celulares e outros computadores da rede, use sempre este endereço).</p>
+        <a class="btn btn-primary btn-block" href="${esc(backendUrl)}/">Abrir o AutomatiCQ em ${esc(backendUrl)}</a>
+        <div class="stacked-form mt">
+          <label>URL do backend
+            <input type="text" id="backend-url-input-boot" value="${esc(backendUrl)}" />
+          </label>
+          <button type="button" class="btn btn-block" data-action="retry-backend-connection">Tentar de novo</button>
+        </div>
+      </div>
+    </div>`;
+    }
     return `
     <div class="auth-screen">
       <div class="auth-card">
@@ -175,10 +194,12 @@
         <pre class="raw-json">cd backend
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8420</pre>
-        <label>URL do backend
-          <input type="text" id="backend-url-input-boot" value="${esc(backendUrl)}" />
-        </label>
-        <button type="button" class="btn btn-primary btn-block mt" data-action="retry-backend-connection">Tentar de novo</button>
+        <div class="stacked-form">
+          <label>URL do backend
+            <input type="text" id="backend-url-input-boot" value="${esc(backendUrl)}" />
+          </label>
+          <button type="button" class="btn btn-primary btn-block" data-action="retry-backend-connection">Tentar de novo</button>
+        </div>
       </div>
     </div>`;
   }

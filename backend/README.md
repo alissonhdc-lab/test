@@ -250,12 +250,21 @@ mesmo sem ninguém logado — sem depender de deixar um terminal aberto.
 ## 3. Conectar o app a este backend
 
 O jeito mais simples: acesse `http://localhost:8420` (ou `http://<IP-da-
-máquina>:8420` de outro computador da rede) — o próprio backend já serve o
-app nesse mesmo endereço, sem precisar copiar nenhum arquivo nem instalar
-nada além do navegador.
+máquina>:8420` de outro computador, celular ou tablet da rede) — o próprio
+backend já serve o app nesse mesmo endereço, sem precisar copiar nenhum
+arquivo nem instalar nada além do navegador. Aberto assim, o app já usa
+esse mesmo servidor sozinho, sem configurar endereço nenhum.
+
+**Celular, tablet e outros computadores: use sempre `http://<IP-da-
+máquina>:8420`, nunca a versão do GitHub Pages.** A versão publicada é
+`https://` e o navegador bloqueia qualquer chamada dela para um servidor
+`http://` da rede ("conteúdo misto") — a única exceção é o próprio
+computador do backend (`http://localhost:8420`). Se alguém abrir pelo
+GitHub Pages com um IP de rede configurado, o app mostra um botão para
+abrir direto no servidor.
 
 Se preferir abrir o `index.html` localmente (duplo clique) ou publicado no
-GitHub Pages:
+GitHub Pages, no próprio computador do backend:
 
 1. Abra o app.
 2. Se ainda não houver usuários, a própria tela inicial já pede para criar
@@ -671,12 +680,11 @@ configurar uma **pasta de backup automático**. Uma vez configurada:
 
 ## Avisos importantes
 
-- **HTTPS x HTTP (conteúdo misto):** se você abrir o app por `https://`
-  (ex.: publicado no GitHub Pages) e o backend estiver em
-  `http://localhost`, alguns navegadores podem bloquear a chamada por
-  política de "conteúdo misto". Se isso acontecer, abra o app localmente
-  (ex.: `python3 -m http.server` na raiz do repositório e acesse via
-  `http://`) em vez de usar a versão publicada.
+- **HTTPS x HTTP (conteúdo misto):** o app aberto por `https://` (ex.:
+  publicado no GitHub Pages) só alcança um backend `http://` no próprio
+  computador (`http://localhost:8420`). Para um backend em outro endereço
+  da rede (ex.: `http://192.168.1.15:8420`, como num celular), o navegador
+  bloqueia — abra o app direto pelo backend, nesse mesmo endereço.
 - **CORS aberto por padrão:** por simplicidade, o backend aceita chamadas
   de qualquer origem. Restrinja com `RTQC_ALLOWED_ORIGINS` (lista separada
   por vírgula) se for expor este serviço numa rede maior, e proteja com uma

@@ -12,11 +12,43 @@
   const BACKEND_URL_KEY = "rtqc_backend_url_v1";
   const SESSION_KEY = "rtqc_session_v1";
 
+  // Sem endereço salvo, o padrão é a própria origem da página quando ela
+  // foi servida pelo backend (ex.: http://192.168.1.15:8420 aberto num
+  // celular da rede — ali "localhost" seria o próprio celular); senão
+  // (index.html local, GitHub Pages), http://localhost:8420.
+  let sameOriginBackend = false;
+
   function getBackendUrl() {
-    return localStorage.getItem(BACKEND_URL_KEY) || "http://localhost:8420";
+    return localStorage.getItem(BACKEND_URL_KEY) || (sameOriginBackend ? location.origin : "http://localhost:8420");
   }
   function setBackendUrl(url) {
     localStorage.setItem(BACKEND_URL_KEY, url.trim().replace(/\/+$/, ""));
+  }
+
+  // Chamado uma vez ao abrir o app: descobre se esta página veio do próprio
+  // backend (responde /api/health na mesma origem).
+  async function detectSameOriginBackend() {
+    if (localStorage.getItem(BACKEND_URL_KEY) || !/^https?:$/.test(location.protocol)) return;
+    try {
+      const resp = await fetch(location.origin + "/api/health", { cache: "no-store" });
+      const data = resp.ok ? await resp.json() : null;
+      sameOriginBackend = !!(data && data.status === "ok");
+    } catch (e) {
+      sameOriginBackend = false;
+    }
+  }
+
+  // Página aberta por https:// (ex.: GitHub Pages) chamando um backend
+  // http:// que não é o próprio computador: o navegador bloqueia antes de a
+  // chamada sair ("conteúdo misto") — só localhost/127.0.0.1 são exceção.
+  function isBlockedAsMixedContent(url) {
+    if (location.protocol !== "https:") return false;
+    try {
+      const u = new URL(url);
+      return u.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+    } catch (e) {
+      return false;
+    }
   }
 
   // Lê o token de sessão diretamente do sessionStorage (em vez de importar
@@ -42,10 +74,14 @@
     try {
       resp = await fetch(getBackendUrl() + path, options);
     } catch (err) {
+      const url = getBackendUrl();
       const e = new Error(
-        `Não foi possível conectar ao servidor (${getBackendUrl()}). Verifique se o backend está rodando (veja backend/README.md) e a URL configurada em Backup.`
+        isBlockedAsMixedContent(url)
+          ? `Este endereço (${location.origin}) é https:// e o navegador bloqueia chamadas a um servidor http:// da rede (${url}). Abra o AutomatiCQ direto pelo servidor: ${url}`
+          : `Não foi possível conectar ao servidor (${url}). Verifique se o backend está rodando (veja backend/README.md) e a URL configurada em Backup.`
       );
       e.isNetworkError = true;
+      e.mixedContent = isBlockedAsMixedContent(url);
       throw e;
     }
     let data = null;
@@ -82,6 +118,8 @@
   const Store = {
     getBackendUrl,
     setBackendUrl,
+    detectSameOriginBackend,
+    isBlockedAsMixedContent,
     api: { apiGet, apiPost, apiPut, apiDelete },
 
     async healthCheck() {
