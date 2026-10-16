@@ -1,0 +1,4 @@
+# VBA importa em ANSI + CRLF: nao normalizar
+mosaiq/**/*.bas -text
+mosaiq/**/*.cls -text
+*.dotm binary
