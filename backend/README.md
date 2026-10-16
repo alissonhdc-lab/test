@@ -1,4 +1,4 @@
-# Backend — CQ Radioterapia
+# Backend — AutomatiCQ
 
 Este é o servidor Python (FastAPI + SQLite) da plataforma de Controle de
 Qualidade em Radioterapia. Desde esta versão, ele é a **fonte de dados de
@@ -141,7 +141,7 @@ algum computador não conseguir conectar, confira:
 4. **TCP**, **Portas locais específicas**: digite `8420` → Avançar.
 5. **Permitir a conexão** → Avançar.
 6. Marque todos os perfis (Domínio, Particular, Público) → Avançar.
-7. Dê um nome, ex. "CQ Radioterapia (backend)" → Concluir.
+7. Dê um nome, ex. "AutomatiCQ (backend)" → Concluir.
 
 ### Passo 2 — Fixar o IP do computador que roda o backend
 

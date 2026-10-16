@@ -9,7 +9,10 @@
 (function (global) {
   "use strict";
 
-  const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
+  // Séries: verde-azulado da marca AutomatiCQ primeiro; nada de verde,
+  // laranja ou vermelho, que são as cores das faixas e linhas de nível de
+  // ação/tolerância.
+  const COLORS = ["#0E8C8C", "#1F6FD1", "#6B4FC9", "#0B2540", "#B83280", "#8A6D00"];
 
   // Aparência padrão do gráfico (sobrescrita por routine.chartStyle, lida
   // no modal de configuração da rotina) — tamanho do ponto, espessura da

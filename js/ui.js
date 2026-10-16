@@ -92,13 +92,58 @@
   }
 
   // ------------------------------------------------------------------
+  // Logo AutomatiCQ — símbolo (isocentro com marca de verificação) +
+  // "Automati" regular e "CQ" em negrito na cor de destaque. "dark" =
+  // sobre o azul-marinho (barra lateral); "light" = sobre fundo claro.
+  // ------------------------------------------------------------------
+  function logoSymbolSvg(variant) {
+    const ring = variant === "dark" ? "#2FD1C5" : "#0E8C8C";
+    const ink = variant === "dark" ? "#FFFFFF" : "#0B2540";
+    return `<svg class="brand-symbol" viewBox="0 0 120 120" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="60" cy="60" r="40" stroke="${ring}" stroke-width="7"></circle>
+      <path d="M60 4v14M60 102v14M4 60h14M102 60h14" stroke="${ink}" stroke-width="7"></path>
+      <polyline points="41,61 54,74 80,46" stroke="${ink}" stroke-width="9"></polyline>
+    </svg>`;
+  }
+
+  const WORDMARK_HTML = `<span class="wordmark"><span class="wordmark-a">Automati</span><span class="wordmark-cq">CQ</span></span>`;
+  const TAGLINE = "CONTROLE DE QUALIDADE AUTOMATIZADO";
+
+  function authLogoHtml() {
+    return `<div class="auth-logo">
+          <h1>${logoSymbolSvg("light")}${WORDMARK_HTML}</h1>
+          <div class="auth-tagline">${TAGLINE}</div>
+        </div>`;
+  }
+
+  // Ícones de traço do menu (24×24, cor do texto).
+  const NAV_ICON_PATHS = {
+    dashboard:
+      '<rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect>',
+    equipamentos:
+      '<path d="M3 21h18"></path><path d="M7 21V4"></path><path d="M7 4h7a3 3 0 0 1 3 3v4"></path><rect x="14" y="11" width="6" height="3.5" rx="1"></rect><path d="M11 18h9"></path>',
+    ativos: '<path d="M4 16a8 8 0 1 1 16 0"></path><path d="M12 16l4.5-4.5"></path><circle cx="12" cy="16" r="1.3"></circle><path d="M4 20h16"></path>',
+    usuarios:
+      '<circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"></path><path d="M18 14.2a6.5 6.5 0 0 1 3.5 5.8"></path>',
+    backup:
+      '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"></ellipse><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13"></path><path d="M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"></path>',
+    ajuda: '<circle cx="12" cy="12" r="9"></circle><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.3-1 .9-1 1.6v.5"></path><path d="M12 17h.01"></path>',
+  };
+
+  function navIconSvg(route) {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${
+      NAV_ICON_PATHS[route] || ""
+    }</svg>`;
+  }
+
+  // ------------------------------------------------------------------
   // Login / setup inicial
   // ------------------------------------------------------------------
   function renderSetupAdmin() {
     return `
     <div class="auth-screen">
       <div class="auth-card">
-        <h1>Controle de Qualidade — Radioterapia</h1>
+        ${authLogoHtml()}
         <p class="muted">Nenhum usuário cadastrado ainda. Crie o primeiro usuário (administrador) para começar a usar o sistema.</p>
         <form id="setup-admin-form" class="stacked-form">
           <label>Nome completo
@@ -124,7 +169,7 @@
     return `
     <div class="auth-screen">
       <div class="auth-card">
-        <h1>Controle de Qualidade — Radioterapia</h1>
+        ${authLogoHtml()}
         <p class="form-error">${esc(message)}</p>
         <p class="muted small">Este app agora depende do backend para tudo (não só para analisar DICOM) — usuários, equipamentos, rotinas e resultados ficam salvos lá. Confirme que ele está rodando:</p>
         <pre class="raw-json">cd backend
@@ -142,7 +187,7 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     return `
     <div class="auth-screen">
       <div class="auth-card">
-        <h1>Controle de Qualidade — Radioterapia</h1>
+        ${authLogoHtml()}
         <p class="muted">Entre com seu usuário e senha para acessar o sistema.</p>
         ${error ? `<p class="form-error">${esc(error)}</p>` : ""}
         <form id="login-form" class="stacked-form">
@@ -164,16 +209,16 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
   function renderShell(activeRoute, session, contentHtml) {
     const isAdmin = session.role === "admin";
     const nav = [
-      { route: "dashboard", label: "Painel", icon: "📊" },
-      { route: "equipamentos", label: "Equipamentos", icon: "🏥" },
-      { route: "ativos", label: "Ativos", icon: "📡" },
-      isAdmin && { route: "usuarios", label: "Usuários", icon: "👤" },
-      isAdmin && { route: "backup", label: "Backup", icon: "💾" },
-      { route: "ajuda", label: "Ajuda", icon: "❓" },
+      { route: "dashboard", label: "Painel" },
+      { route: "equipamentos", label: "Equipamentos" },
+      { route: "ativos", label: "Ativos" },
+      isAdmin && { route: "usuarios", label: "Usuários" },
+      isAdmin && { route: "backup", label: "Backup" },
+      { route: "ajuda", label: "Ajuda" },
     ].filter(Boolean);
     const navHtml = nav
       .map(
-        (n) => `<a href="#/${n.route}" class="nav-link ${activeRoute === n.route ? "active" : ""}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`
+        (n) => `<a href="#/${n.route}" class="nav-link ${activeRoute === n.route ? "active" : ""}"><span class="nav-icon">${navIconSvg(n.route)}</span>${n.label}</a>`
       )
       .join("");
 
@@ -181,10 +226,10 @@ uvicorn main:app --host 0.0.0.0 --port 8420</pre>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <span class="brand-mark">☢</span>
+          ${logoSymbolSvg("dark")}
           <div>
-            <div class="brand-title">CQ Radioterapia</div>
-            <div class="brand-sub">pylinac toolkit</div>
+            <div class="brand-title">${WORDMARK_HTML}</div>
+            <div class="brand-sub">${TAGLINE}</div>
           </div>
         </div>
         <nav class="sidebar-nav">${navHtml}</nav>

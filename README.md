@@ -1,6 +1,6 @@
-# CQ Radioterapia
+# AutomatiCQ
 
-Plataforma local de **Controle de Qualidade em Radioterapia**: cadastro de
+*Controle de qualidade automatizado.* Plataforma local de **Controle de Qualidade em Radioterapia**: cadastro de
 equipamentos e rotinas de CQ, execução/registro de resultados (manual, via
 upload de DICOM analisado automaticamente pelo `pylinac`, ou 100%
 automático a partir de outros sistemas), gráficos de tendência, aprovação

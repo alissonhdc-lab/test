@@ -56,7 +56,7 @@ from sncdata_import import list_active_templates
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rtqc-backend")
 
-app = FastAPI(title="RTQC backend", version="2.0")
+app = FastAPI(title="AutomatiCQ backend", version="2.0")
 
 allowed_origins = os.environ.get("RTQC_ALLOWED_ORIGINS", "*")
 app.add_middleware(
@@ -826,7 +826,7 @@ async def dosimetry_import_commit(
 
 
 # ==================================================================
-# Frontend estático (index.html, css/, js/) — opcional: só entra em uso
+# Frontend estático (index.html, css/, js/, assets/) — opcional: só entra em uso
 # se você apontar o navegador para a porta deste backend em vez de abrir
 # o index.html localmente. Serve-se explicitamente SÓ esses arquivos (não
 # a pasta raiz do repositório inteira, que contém este próprio backend/
@@ -837,6 +837,7 @@ async def dosimetry_import_commit(
 _REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 app.mount("/css", StaticFiles(directory=os.path.join(_REPO_ROOT, "css")), name="frontend-css")
 app.mount("/js", StaticFiles(directory=os.path.join(_REPO_ROOT, "js")), name="frontend-js")
+app.mount("/assets", StaticFiles(directory=os.path.join(_REPO_ROOT, "assets")), name="frontend-assets")
 
 
 @app.get("/")

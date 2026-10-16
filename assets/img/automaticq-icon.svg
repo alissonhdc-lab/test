@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="AutomatiCQ">
+  <rect width="120" height="120" rx="27" fill="#0B2540"/>
+  <g transform="translate(12 12) scale(0.8)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="60" cy="60" r="40" stroke="#2FD1C5" stroke-width="8"/>
+    <path d="M60 4v14M60 102v14M4 60h14M102 60h14" stroke="#FFFFFF" stroke-width="8"/>
+    <polyline points="41,61 54,74 80,46" stroke="#FFFFFF" stroke-width="10"/>
+  </g>
+</svg>

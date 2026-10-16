@@ -22,7 +22,7 @@
 
   const AXIS_COLORS = {
     Reference: "#6b7280",
-    Gantry: "#2563eb",
+    Gantry: "#1F6FD1",
     Collimator: "#dc2626",
     Couch: "#16a34a",
     "GB Combo": "#7c3aed",

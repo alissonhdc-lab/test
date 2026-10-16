@@ -1,29 +1,55 @@
 /* ==========================================================================
-   styles.css — Plataforma de Controle de Qualidade em Radioterapia
+   styles.css — AutomatiCQ (controle de qualidade em radioterapia)
+   Identidade: azul-marinho #0B2540 + verde-azulado #0E8C8C (#2FD1C5 sobre
+   fundo escuro), IBM Plex Sans / IBM Plex Mono — ver assets/.
    ========================================================================== */
 
+/* IBM Plex (SIL OFL 1.1, assets/fonts/OFL.txt) servida localmente: o
+   sistema roda na rede do hospital, sem depender de internet. */
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/IBMPlexSans-latin.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../assets/fonts/IBMPlexMono-Medium-latin.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --bg: #f3f5f8;
+  --brand-navy: #0B2540;
+  --brand-navy-dark: #06182B;
+  --brand-teal: #0E8C8C;
+  --brand-teal-on-dark: #2FD1C5;
+  --bg: #EEF2F5;
   --panel-bg: #ffffff;
-  --text: #1a2230;
-  --text-muted: #64748b;
-  --border: #e2e8f0;
-  --primary: #1d4ed8;
-  --primary-dark: #1e40af;
-  --primary-bg: #eff4ff;
+  --text: #0B2540;
+  --text-muted: #4A5B6C;
+  --border: #D9E1E8;
+  /* Verde-azulado da marca um tom mais escuro: texto/links e fundo de
+     botão com contraste AA sobre branco. */
+  --primary: #0A6F6F;
+  --primary-dark: #075757;
+  --primary-bg: #E3F3F2;
   --danger: #dc2626;
   --danger-bg: #fef2f2;
   --success: #16a34a;
   --success-bg: #f0fdf4;
   --warning: #d97706;
   --warning-bg: #fffbeb;
-  --muted-bg: #f1f5f9;
-  --sidebar-bg: #101827;
-  --sidebar-text: #cbd5e1;
-  --sidebar-active: #1d4ed8;
+  --muted-bg: #EAF0F4;
+  --sidebar-bg: var(--brand-navy);
+  --sidebar-text: #C5D3E0;
+  --sidebar-active: rgba(47, 209, 197, 0.16);
   --radius: 10px;
-  --shadow: 0 1px 3px rgba(16, 24, 39, 0.08), 0 1px 2px rgba(16, 24, 39, 0.06);
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --shadow: 0 1px 3px rgba(11, 37, 64, 0.08), 0 1px 2px rgba(11, 37, 64, 0.06);
+  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, "Courier New", monospace;
 }
 
 * { box-sizing: border-box; }
@@ -41,6 +67,10 @@ html, body {
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+button, input, select, textarea { font-family: inherit; }
+code, pre {
+  font-family: var(--font-mono);
+}
 code {
   background: var(--muted-bg);
   padding: 1px 5px;
@@ -78,15 +108,29 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
   height: 100vh;
 }
 
+/* Logo AutomatiCQ: símbolo (isocentro + verificação) e "Automati" regular
+   + "CQ" em negrito na cor de destaque. */
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 8px 20px;
+  padding: 4px 8px 22px;
 }
-.brand-mark { font-size: 24px; }
-.brand-title { font-weight: 700; color: #fff; font-size: 14px; }
-.brand-sub { font-size: 11px; color: #8b98ac; }
+.brand-symbol { width: 38px; height: 38px; flex-shrink: 0; }
+.wordmark { white-space: nowrap; letter-spacing: -0.02em; line-height: 1; }
+.wordmark-a { font-weight: 400; }
+.wordmark-cq { font-weight: 700; color: var(--brand-teal); }
+.brand-title { color: #fff; font-size: 21px; }
+.brand-title .wordmark-cq { color: var(--brand-teal-on-dark); }
+.brand-sub {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 8.5px;
+  line-height: 1.4;
+  letter-spacing: 0.12em;
+  color: #8FA3B8;
+  margin-top: 5px;
+}
 
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .nav-link {
@@ -100,17 +144,19 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 }
 .nav-link:hover { background: rgba(255,255,255,0.06); text-decoration: none; }
 .nav-link.active { background: var(--sidebar-active); color: #fff; }
-.nav-icon { font-size: 16px; width: 18px; text-align: center; }
+.nav-icon { width: 18px; height: 18px; flex-shrink: 0; display: flex; }
+.nav-icon svg { width: 18px; height: 18px; }
+.nav-link.active .nav-icon { color: var(--brand-teal-on-dark); }
 
 .sidebar-footer { border-top: 1px solid rgba(255,255,255,0.1); padding-top: 14px; margin-top: 14px; }
 .session-user { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .avatar {
   width: 34px; height: 34px; border-radius: 50%;
-  background: var(--primary); color: #fff;
+  background: var(--brand-teal-on-dark); color: var(--brand-navy);
   display: flex; align-items: center; justify-content: center; font-weight: 700;
 }
 .session-name { color: #fff; font-size: 13px; font-weight: 600; }
-.session-role { font-size: 11px; color: #8b98ac; }
+.session-role { font-size: 11px; color: #8FA3B8; }
 
 .content { flex: 1; padding: 28px 34px; max-width: 1200px; }
 
@@ -253,8 +299,8 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
   transition: background 0.08s ease;
 }
 .btn:hover { background: var(--muted-bg); }
-.btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-.btn-primary:hover { background: var(--primary-dark); }
+.btn-primary { background: var(--brand-navy); border-color: var(--brand-navy); color: #fff; }
+.btn-primary:hover { background: var(--brand-navy-dark); }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn-danger:hover { background: #b91c1c; }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--sidebar-text); }
@@ -392,18 +438,21 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(150deg, #0f172a, #1d4ed8 140%);
+  background: var(--brand-navy);
   padding: 20px;
 }
 .auth-card {
   background: #fff;
-  border-radius: 14px;
+  border-radius: 20px;
   padding: 32px;
   width: 100%;
-  max-width: 380px;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.3);
+  max-width: 400px;
+  box-shadow: 0 24px 60px rgba(6, 24, 43, 0.45);
 }
-.auth-card h1 { font-size: 18px; margin-bottom: 6px; }
+.auth-logo { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 4px 0 22px; text-align: center; }
+.auth-logo h1 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 34px; }
+.auth-logo .brand-symbol { width: 52px; height: 52px; }
+.auth-tagline { font-family: var(--font-mono); font-weight: 500; font-size: 10px; letter-spacing: 0.2em; color: var(--text-muted); }
 
 /* -------------------- Estados vazios -------------------- */
 .empty-state {
@@ -495,8 +544,8 @@ h4 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); lette
 }
 .pylinac-status { min-height: 16px; margin-top: 8px; }
 .raw-json {
-  background: #0f172a;
-  color: #d1e2ff;
+  background: var(--brand-navy-dark);
+  color: #D5E6F0;
   padding: 12px;
   border-radius: 8px;
   font-size: 11.5px;

@@ -293,6 +293,12 @@
 
   function defaultTrendMetrics(routine) {
     const metrics = routine.metrics || [];
+    // Dosimetria: abre direto no fator de calibração (o que o histórico
+    // importado da planilha tem), não na primeira métrica da lista (Ktp).
+    if (routine.testType === "trs398") {
+      const preferred = catalog.DOSIMETRY_TRS398_TYPE.summaryKeys.find((k) => metrics.some((m) => m.key === k));
+      if (preferred) return [preferred];
+    }
     const numeric = metrics.filter((m) => m.tolType !== "bool");
     if (numeric.length > 0) return [numeric[0].key];
     if (metrics.length > 0) return [metrics[0].key];
